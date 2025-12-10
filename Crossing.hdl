@@ -8,7 +8,7 @@ CHIP Crossing {
     DFF(in=nextS1, out=S1);
     DFF(in=nextS0, out=S0);
     
-     DFF(in=nextButtonReg, out=ButtonReg);
+    DFF(in=nextButtonReg, out=ButtonReg);
 
     DFF(in=nextTimer3, out=Timer3);
     DFF(in=nextTimer2, out=Timer2);
@@ -35,9 +35,9 @@ CHIP Crossing {
     Not(in=clearButton, out=notClearButton);
     And(a=nextButtonRegTemp, b=notClearButton, out=nextButtonReg);
     
-     Mux(a=false, b=true, sel=ButtonReg, out=ButtonPressed);
+    Mux(a=false, b=true, sel=ButtonReg, out=ButtonPressed);
     
-     Not(in=inTimerState, out=Wait);
+    Not(in=inTimerState, out=Wait);
     
     Or(a=Timer3, b=Timer2, out=or32);
     Or(a=Timer1, b=Timer0, out=or10);
@@ -121,11 +121,11 @@ CHIP Crossing {
     Not(in=Timer1, out=nT1);
     Not(in=Timer0, out=nT0);
     
-     And(a=nT3, b=nT2, out=a320);
+    And(a=nT3, b=nT2, out=a320);
     And(a=nT1, b=nT0, out=a100);
     And(a=a320, b=a100, out=is0);
     
-     And(a=nT3, b=nT2, out=a321);
+    And(a=nT3, b=nT2, out=a321);
     And(a=nT1, b=Timer0, out=a101);
     And(a=a321, b=a101, out=is1);
     
@@ -160,7 +160,7 @@ CHIP Crossing {
     And(a=Timer3, b=nT2, out=a329);
     And(a=nT1, b=Timer0, out=a109);
     And(a=a329, b=a109, out=is9);
-    
+
     Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
            in[4]=is6, in[5]=is7, in[6]=is8, in[7]=is9, out=C[6]);
 
@@ -168,17 +168,18 @@ CHIP Crossing {
            in[4]=is4, in[5]=is7, in[6]=is8, in[7]=is9, out=C[5]);
 
     Or8Way(in[0]=is0, in[1]=is1, in[2]=is3, in[3]=is4,
-           in[4]=is5, in[5]=is6, in[6]=is7, in[7]=is8,
-           in[8]=is9, out=C[4]);
+           in[4]=is5, in[5]=is6, in[6]=is7, in[7]=is8, out=cpart1);
+    Or(a=cpart1, b=is9, out=C[4]);
 
     Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
-           in[4]=is6, in[5]=is8, in[6]=is9, out=C[3]);
+           in[4]=is6, in[5]=is8, in[6]=is9, in[7]=false, out=C[3]);
 
-    Or8Way(in[0]=is0, in[1]=is2, in[2]=is6, in[3]=is8, out=C[2]);
+    Or8Way(in[0]=is0, in[1]=is2, in[2]=is6, in[3]=is8,
+           in[4]=false, in[5]=false, in[6]=false, in[7]=false, out=C[2]);
 
     Or8Way(in[0]=is0, in[1]=is4, in[2]=is5, in[3]=is6,
-           in[4]=is8, in[5]=is9, out=C[1]);
+           in[4]=is8, in[5]=is9, in[6]=false, in[7]=false, out=C[1]);
 
     Or8Way(in[0]=is2, in[1]=is3, in[2]=is4, in[3]=is5,
-           in[4]=is6, in[5]=is8, in[6]=is9, out=C[0]);
+           in[4]=is6, in[5]=is8, in[6]=is9, in[7]=false, out=C[0]);
 }
