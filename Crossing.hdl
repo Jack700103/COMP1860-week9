@@ -1,6 +1,6 @@
 CHIP Crossing {
-    IN PowerOn, Button;
-    OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+    IN PowerOn, Button, Timer[0..4];
+    OUT ButtonPressed, Wait, X[3], Z[3], C[7], TimerReset[0..4];
 
     PARTS:
 
@@ -71,49 +71,24 @@ CHIP Crossing {
     Not(in=zstate0normal, out=notzstate0normal);
     And(a=zstate1normal, b=notzstate0normal, out=Z0normal);
 
-    Mux(a=X2normal, b=true, sel=S4, out=X2);
-    Mux(a=X1normal, b=false, sel=S4, out=X1);
-    Mux(a=X0normal, b=false, sel=S4, out=X0);
     Mux(a=Z2normal, b=true, sel=S4, out=Z2);
     Mux(a=Z1normal, sel=S4, b=false, out=Z1);
-    Mux(a=Z0normal, sel=S4, b=false, out=Z0);
+    Mux(a=Z0normal, sel=S4, b=true, out=Z0);
 
-    X[0] = X0;
-    X[1] = X1;
-    X[2] = X2;
-    Z[0] = Z0;
-    Z[1] = Z1;
-    Z[2] = Z2;
+    Mux(a=S1, b=false, sel=S2, out=xstate1normal);
+    Mux(a=S0, b=false, sel=S2, out=xstate0normal);
+    Not(in=xstate1normal, out=X2normal);
+    Or(a=xstate0normal, b=false, out=X1normal);
+    Not(in=xstate0normal, out=notxstate0normal);
+    And(a=xstate1normal, b=notxstate0normal, out=X0normal);
 
-    DFF(in=TimerReset[0], out=Timer0);
-    DFF(in=TimerReset[1], out=Timer1);
-    DFF(in=TimerReset[2], out=Timer2);
-    DFF(in=TimerReset[3], out=Timer3);
-    DFF(in=TimerReset[4], out=Timer4);
-    Not(in=Timer0, out=NotTimer0);
-    And(a=Timer0, b=Timer1, out=Carry2);
-    And(a=Carry2, b=Timer2, out=Carry3);
-    And(a=Carry3, b=Timer3, out=Carry4);
+    Mux(a=X2normal, b=true, sel=S4, out=X2);
+    Mux(a=X1normal, b=false, sel=S4, out=X1);
+    Mux(a=X0normal, sel=S4, b=true, out=X0);
 
-    And(a=S4, b=S3, out=EnableTimer);
-    Mux(a=Timer0, b=NotTimer0, sel=EnableTimer, out=nextTimer0);
-    And(a=EnableTimer, b=Timer0, out=EnableTimer1);
-    Mux(a=Timer1, b=NotTimer1, sel=EnableTimer1, out=nextTimer1);
-    And(a=EnableTimer1, b=Timer1, out=EnableTimer2);
-    Mux(a=Timer2, b=NotTimer2, sel=EnableTimer2, out=nextTimer2);
-    And(a=EnableTimer2, b=Timer2, out=EnableTimer3);
-    Mux(a=Timer3, b=NotTimer3, sel=EnableTimer3, out=nextTimer3);
-    And(a=EnableTimer3, b=Timer3, out=EnableTimer4);
-    Mux(a=Timer4, b=NotTimer4, sel=EnableTimer4, out=nextTimer4);
-
-    Mux(a=9, b={Timer4,Timer3,Timer2,Timer1,Timer0}, sel=SetS9, out=TimerInit);
-    Mux(a=TimerInit, b=0, sel=PowerOn, out=TimerReset);
-
-    Mux(a=0, b=1, sel=Timer[3], out=D3);
-    Mux(a=D3, b=Timer[2], sel=Timer[3], out=D2);
-    Mux(a=D2, b=Timer[1], sel=Timer[3], out=D1);
-    Mux(a=D1, b=Timer[0], sel=Timer[3], out=D0);
-    ROM7(address={Timer[4],D2,D1,D0}, out=C);
-
-    Mux(a=ButtonPressed, b=false, sel=PowerOn, out=nextButtonPressed);
+    TimerReset[0] = nextTimer0;
+    TimerReset[1] = nextTimer1;
+    TimerReset[2] = nextTimer2;
+    TimerReset[3] = nextTimer3;
+    TimerReset[4] = nextTimer4;
 }
