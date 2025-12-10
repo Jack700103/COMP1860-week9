@@ -2,35 +2,84 @@ CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     PARTS:
-    DFF(in=nextP, out=P);
-    DFF(in=nextA, out=A);
-    DFF(in=nextB, out=B);
-    DFF(in=nextC, out=C);
-    DFF(in=nextF, out=F);
+    DFF(in=nextSA, out=SA);
+    DFF(in=nextSB, out=SB);
+    DFF(in=nextSC, out=SC);
+    DFF(in=nextTM, out=TM);
+    DFF(in=nextBR, out=BR);
 
-    Or(a=F, b=false, out=ButtonPressed);
+    Or(a=BR, b=false, out=ButtonPressed);
+    Not(in=TM, out=Wait);
 
-    Not(in=P, out=Wait);
-
-    Not(in=B, out=Red);
-    Or(a=C, b=false, out=Amber);
-    Not(in=C, out=notC);
-    And(a=B, b=notC, out=Green);
+    Not(in=SB, out=Red);
+    Or(a=SC, b=false, out=Amber);
+    Not(in=SC, out=notSC);
+    And(a=SB, b=notSC, out=Green);
     
-    Mux(a=Red, b=true, sel=A, out=Xnormal2);
-    Mux(a=Amber, b=false, sel=A, out=Xnormal1);
-    Mux(a=Green, b=false, sel=A, out=Xnormal0);
+    Mux(a=Red, b=true, sel=SA, out=Xnormal2);
+    Mux(a=Amber, b=false, sel=SA, out=Xnormal1);
+    Mux(a=Green, b=false, sel=SA, out=Xnormal0);
     
-    Mux(a=true, b=Red, sel=A, out=Znormal2);
-    Mux(a=false, b=Amber, sel=A, out=Znormal1);
-    Mux(a=false, b=Green, sel=A, out=Znormal0);
+    Mux(a=true, b=Red, sel=SA, out=Znormal2);
+    Mux(a=false, b=Amber, sel=SA, out=Znormal1);
+    Mux(a=false, b=Green, sel=SA, out=Znormal0);
 
-    Mux(a=Xnormal2, b=true, sel=P, out=X[2]);
-    Mux(a=Xnormal1, b=false, sel=P, out=X[1]);
-    Mux(a=Xnormal0, b=false, sel=P, out=X[0]);
+    Mux(a=Xnormal2, b=true, sel=TM, out=X[2]);
+    Mux(a=Xnormal1, b=false, sel=TM, out=X[1]);
+    Mux(a=Xnormal0, b=false, sel=TM, out=X[0]);
     
-    Mux(a=Znormal2, b=true, sel=P, out=Z[2]);
-    Mux(a=Znormal1, b=false, sel=P, out=Z[1]);
-    Mux(a=Znormal0, b=false, sel=P, out=Z[0]);
+    Mux(a=Znormal2, b=true, sel=TM, out=Z[2]);
+    Mux(a=Znormal1, b=false, sel=TM, out=Z[1]);
+    Mux(a=Znormal0, b=false, sel=TM, out=Z[0]);
 
+    Not(in=SC, out=notSCtemp);
+    Xor(a=SB, b=SC, out=xorSBSC);
+    And(a=SB, b=SC, out=SBSCis11);
+    Xor(a=SA, b=SBSCis11, out=nextSAnormal);
+    
+    Mux(a=xorSBSC, b=false, sel=SBSCis11, out=nextSBnormal);
+    Mux(a=notSCtemp, b=false, sel=SBSCis11, out=nextSCnormal);
+
+    And(a=SA, b=SB, out=andSASB);
+    And(a=andSASB, b=SC, out=Sis111);
+    And(a=Sis111, b=BR, out=enterTimer);
+
+    CounterDec(dec=decCounter, reset=resetCounter, out=count[4]);
+
+    Or(a=count[0], b=count[1], out=or01);
+    Or(a=or01, b=count[2], out=or012);
+    Or(a=or012, b=count[3], out=countNonZero);
+    Not(in=countNonZero, out=countIsZero);
+
+    And(a=TM, b=countIsZero, out=exitTimer);
+
+    Mux(a=false, b=true, sel=enterTimer, out=nextTMtemp1);
+    Mux(a=nextTMtemp1, b=false, sel=exitTimer, out=nextTMtemp2);
+    Not(in=PowerOn, out=notPowerOn);
+    Mux(a=nextTMtemp2, b=false, sel=notPowerOn, out=nextTM);
+
+    Mux(a=BR, b=true, sel=Button, out=nextBRtemp1);
+    Mux(a=nextBRtemp1, b=false, sel=enterTimer, out=nextBRtemp2);
+    Mux(a=nextBRtemp2, b=false, sel=notPowerOn, out=nextBR);
+
+    Or(a=enterTimer, b=notPowerOn, out=resetCounter);
+    And(a=TM, b=PowerOn, out=decCounter);
+
+    Mux(a=SA, b=nextSAnormal, sel=PowerOn, out=nextSAtemp);
+    Mux(a=SB, b=nextSBnormal, sel=PowerOn, out=nextSBtemp);
+    Mux(a=SC, b=nextSCnormal, sel=PowerOn, out=nextSCtemp);
+    
+    Mux(a=nextSAtemp, b=SA, sel=TM, out=nextSA);
+    Mux(a=nextSBtemp, b=SB, sel=TM, out=nextSB);
+    Mux(a=nextSCtemp, b=SC, sel=TM, out=nextSC);
+
+    Decoder(in=count, a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
+
+    Mux(a=false, b=segA, sel=TM, out=C[0]);
+    Mux(a=false, b=segB, sel=TM, out=C[1]);
+    Mux(a=false, b=segC, sel=TM, out=C[2]);
+    Mux(a=false, b=segD, sel=TM, out=C[3]);
+    Mux(a=false, b=segE, sel=TM, out=C[4]);
+    Mux(a=false, b=segF, sel=TM, out=C[5]);
+    Mux(a=false, b=segG, sel=TM, out=C[6]);
 }
