@@ -60,14 +60,14 @@ CHIP Crossing {
     And(a=Timer1, b=borrow0, out=borrow1temp);
     
     // 修正第61行：将嵌套的And门拆分为独立信号
-    And(a=notT1, b=borrow0, out=and_notT1_borrow0);
+    And(a=notT1, b=borrow0, out=andnotT1borrow0);
     Or(a=andnotT1borrow0, b=borrow1temp, out=borrow1);
     
     Xor(a=Timer2, b=borrow1, out=dec2temp);
     And(a=Timer2, b=borrow1, out=borrow2temp);
     
     // 修正第64行：同样处理嵌套的And门
-    And(a=notT2, b=borrow1, out=and_notT2_borrow1);
+    And(a=notT2, b=borrow1, out=andnotT2borrow1);
     Or(a=andnotT2borrow1, b=borrow2temp, out=borrow2);
     
     Xor(a=Timer3, b=borrow2, out=dec3temp);
