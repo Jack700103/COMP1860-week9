@@ -9,7 +9,7 @@ CHIP Crossing {
     DFF(in=nextS0, out=S0);
     
     DFF(in=nextButtonReg, out=ButtonReg);
-
+    
     DFF(in=nextTimer3, out=Timer3);
     DFF(in=nextTimer2, out=Timer2);
     DFF(in=nextTimer1, out=Timer1);
@@ -31,6 +31,16 @@ CHIP Crossing {
     And(a=notInTimerState, b=Button, out=buttonPressedNow);
     Or(a=buttonPressedNow, b=ButtonReg, out=nextButtonRegTemp);
     
+    Not(in=Timer3, out=notT3);
+    Not(in=Timer2, out=notT2);
+    Not(in=Timer1, out=notT1);
+    Not(in=Timer0, out=notT0);
+    
+    And(a=notT3, b=notT2, out=t32zero);
+    And(a=notT1, b=notT0, out=t10zero);
+    And(a=t32zero, b=t10zero, out=timerIsZero);
+    Not(in=timerIsZero, out=timerNotZero);
+    
     And(a=inTimerState, b=timerIsZero, out=clearButton);
     Not(in=clearButton, out=notClearButton);
     And(a=nextButtonRegTemp, b=notClearButton, out=nextButtonReg);
@@ -39,47 +49,38 @@ CHIP Crossing {
     
     Not(in=inTimerState, out=Wait);
     
-    Or(a=Timer3, b=Timer2, out=or32);
-    Or(a=Timer1, b=Timer0, out=or10);
-    Or(a=or32, b=or10, out=timerNotZero);
-    Not(in=timerNotZero, out=timerIsZero);
+    Not(in=Timer0, out=nextTimer0Raw);
     
-    Not(in=Timer0, out=notT0);
-    Not(in=Timer1, out=notT1);
-    Not(in=Timer2, out=notT2);
-    Not(in=Timer3, out=notT3);
-
-    Xor(a=Timer1, b=Timer0, out=borrow1);
-    And(a=Timer1, b=Timer0, out=andT1T0);
-    Not(in=andT1T0, out=notAndT1T0);
-    And(a=notAndT1T0, b=Timer0, out=nextTimer0Raw);
+    Not(in=Timer1, out=notT1raw);
+    Or(a=Timer0, b=Timer1, out=or01);
+    Not(in=or01, out=nextTimer1Raw);
     
-    Xor(a=Timer2, b=borrow1, out=borrow2);
-    And(a=Timer2, b=borrow1, out=andT2B1);
-    Not(in=andT2B1, out=notAndT2B1);
-    And(a=notAndT2B1, b=borrow1, out=nextTimer1Raw);
+    Not(in=Timer2, out=notT2raw);
+    And(a=Timer0, b=Timer1, out=and01);
+    Not(in=and01, out=notAnd01);
+    And(a=notAnd01, b=Timer2, out=nextTimer2Raw);
     
-    Xor(a=Timer3, b=borrow2, out=borrow3);
-    And(a=Timer3, b=borrow2, out=andT3B2);
-    Not(in=andT3B2, out=notAndT3B2);
-    And(a=notAndT3B2, b=borrow2, out=nextTimer2Raw);
+    Not(in=Timer3, out=notT3raw);
+    And(a=and01, b=Timer2, out=and012);
+    Not(in=and012, out=notAnd012);
+    And(a=notAnd012, b=Timer3, out=nextTimer3Raw);
     
     And(a=ButtonReg, b=zCycleComplete, out=enterTimerState);
     
     Mux(a=nextTimer0Raw, b=true, sel=enterTimerState, out=nextTimer0Load);
     Mux(a=nextTimer1Raw, b=false, sel=enterTimerState, out=nextTimer1Load);
     Mux(a=nextTimer2Raw, b=false, sel=enterTimerState, out=nextTimer2Load);
-    Mux(a=notT3, b=true, sel=enterTimerState, out=nextTimer3Load);
+    Mux(a=nextTimer3Raw, b=true, sel=enterTimerState, out=nextTimer3Load);
     
-    Mux(a=false, b=nextTimer0Load, sel=inTimerState, out=nextTimer0Final);
-    Mux(a=false, b=nextTimer1Load, sel=inTimerState, out=nextTimer1Final);
-    Mux(a=false, b=nextTimer2Load, sel=inTimerState, out=nextTimer2Final);
-    Mux(a=false, b=nextTimer3Load, sel=inTimerState, out=nextTimer3Final);
+    Mux(a=false, b=nextTimer0Load, sel=inTimerState, out=nextTimer0Temp);
+    Mux(a=false, b=nextTimer1Load, sel=inTimerState, out=nextTimer1Temp);
+    Mux(a=false, b=nextTimer2Load, sel=inTimerState, out=nextTimer2Temp);
+    Mux(a=false, b=nextTimer3Load, sel=inTimerState, out=nextTimer3Temp);
     
-    Mux(a=nextTimer0Final, b=false, sel=PowerOn, out=nextTimer0);
-    Mux(a=nextTimer1Final, b=false, sel=PowerOn, out=nextTimer1);
-    Mux(a=nextTimer2Final, b=false, sel=PowerOn, out=nextTimer2);
-    Mux(a=nextTimer3Final, b=false, sel=PowerOn, out=nextTimer3);
+    Mux(a=nextTimer0Temp, b=false, sel=PowerOn, out=nextTimer0);
+    Mux(a=nextTimer1Temp, b=false, sel=PowerOn, out=nextTimer1);
+    Mux(a=nextTimer2Temp, b=false, sel=PowerOn, out=nextTimer2);
+    Mux(a=nextTimer3Temp, b=false, sel=PowerOn, out=nextTimer3);
     
     And(a=inTimerState, b=timerNotZero, out=stayInTimer);
     
@@ -116,70 +117,65 @@ CHIP Crossing {
     Not(in=zstate0Final, out=notzstate0);
     And(a=zstate1Final, b=notzstate0, out=Z[0]);
     
-    Not(in=Timer3, out=nT3);
-    Not(in=Timer2, out=nT2);
-    Not(in=Timer1, out=nT1);
-    Not(in=Timer0, out=nT0);
-    
-    And(a=nT3, b=nT2, out=a320);
-    And(a=nT1, b=nT0, out=a100);
+    And(a=notT3, b=notT2, out=a320);
+    And(a=notT1, b=notT0, out=a100);
     And(a=a320, b=a100, out=is0);
     
-    And(a=nT3, b=nT2, out=a321);
-    And(a=nT1, b=Timer0, out=a101);
+    And(a=notT3, b=notT2, out=a321);
+    And(a=notT1, b=Timer0, out=a101);
     And(a=a321, b=a101, out=is1);
     
-    And(a=nT3, b=nT2, out=a322);
-    And(a=Timer1, b=nT0, out=a102);
+    And(a=notT3, b=notT2, out=a322);
+    And(a=Timer1, b=notT0, out=a102);
     And(a=a322, b=a102, out=is2);
     
-    And(a=nT3, b=nT2, out=a323);
+    And(a=notT3, b=notT2, out=a323);
     And(a=Timer1, b=Timer0, out=a103);
     And(a=a323, b=a103, out=is3);
     
-    And(a=nT3, b=Timer2, out=a324);
-    And(a=nT1, b=nT0, out=a104);
+    And(a=notT3, b=Timer2, out=a324);
+    And(a=notT1, b=notT0, out=a104);
     And(a=a324, b=a104, out=is4);
     
-    And(a=nT3, b=Timer2, out=a325);
-    And(a=nT1, b=Timer0, out=a105);
+    And(a=notT3, b=Timer2, out=a325);
+    And(a=notT1, b=Timer0, out=a105);
     And(a=a325, b=a105, out=is5);
     
-    And(a=nT3, b=Timer2, out=a326);
-    And(a=Timer1, b=nT0, out=a106);
+    And(a=notT3, b=Timer2, out=a326);
+    And(a=Timer1, b=notT0, out=a106);
     And(a=a326, b=a106, out=is6);
     
-    And(a=nT3, b=Timer2, out=a327);
+    And(a=notT3, b=Timer2, out=a327);
     And(a=Timer1, b=Timer0, out=a107);
     And(a=a327, b=a107, out=is7);
     
-    And(a=Timer3, b=nT2, out=a328);
-    And(a=nT1, b=nT0, out=a108);
+    And(a=Timer3, b=notT2, out=a328);
+    And(a=notT1, b=notT0, out=a108);
     And(a=a328, b=a108, out=is8);
     
-    And(a=Timer3, b=nT2, out=a329);
-    And(a=nT1, b=Timer0, out=a109);
+    And(a=Timer3, b=notT2, out=a329);
+    And(a=notT1, b=Timer0, out=a109);
     And(a=a329, b=a109, out=is9);
-
+    
     Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
            in[4]=is6, in[5]=is7, in[6]=is8, in[7]=is9, out=C[6]);
-
+    
     Or8Way(in[0]=is0, in[1]=is1, in[2]=is2, in[3]=is3,
            in[4]=is4, in[5]=is7, in[6]=is8, in[7]=is9, out=C[5]);
-
+    
     Or8Way(in[0]=is0, in[1]=is1, in[2]=is3, in[3]=is4,
            in[4]=is5, in[5]=is6, in[6]=is7, in[7]=is8, out=cpart1);
     Or(a=cpart1, b=is9, out=C[4]);
-
+    
     Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
            in[4]=is6, in[5]=is8, in[6]=is9, in[7]=false, out=C[3]);
-
+    
     Or8Way(in[0]=is0, in[1]=is2, in[2]=is6, in[3]=is8,
            in[4]=false, in[5]=false, in[6]=false, in[7]=false, out=C[2]);
-
+    
     Or8Way(in[0]=is0, in[1]=is4, in[2]=is5, in[3]=is6,
            in[4]=is8, in[5]=is9, in[6]=false, in[7]=false, out=C[1]);
-
+    
     Or8Way(in[0]=is2, in[1]=is3, in[2]=is4, in[3]=is5,
            in[4]=is6, in[5]=is8, in[6]=is9, in[7]=false, out=C[0]);
 }
