@@ -44,7 +44,7 @@ CHIP Crossing {
     And(a=andSASB, b=SC, out=Sis111);
     And(a=Sis111, b=BR, out=enterTimer);
 
-    CounterDec(dec=decCounter, reset=resetCounter, out=count[4]);
+    CounterDec(dec=decCounter, reset=resetCounter, out=count);
 
     Or(a=count[0], b=count[1], out=or01);
     Or(a=or01, b=count[2], out=or012);
