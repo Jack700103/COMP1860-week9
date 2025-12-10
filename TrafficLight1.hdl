@@ -1,0 +1,15 @@
+CHIP TrafficLight1 {
+    OUT S[2];
+    PARTS:
+    DFF(in=nextS0, out=S0);
+    DFF(in=nextS1, out=S1);
+    
+    Or(a=S0, b=false, out=S[0]);
+    Or(a=S1, b=false, out=S[1]);
+    
+    Not(in=S0, out=notS0);
+    Xor(a=S1, b=S0, out=xorOut);
+    
+    Or(a=notS0, b=false, out=nextS0);
+    Or(a=xorOut, b=false, out=nextS1);
+}

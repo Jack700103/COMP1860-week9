@@ -1,0 +1,35 @@
+CHIP Crossing {
+    IN PowerOn, Button;
+    OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+    PARTS:
+    DFF(in=nextP, out=P);
+    DFF(in=nextA, out=A);
+    DFF(in=nextB, out=B);
+    DFF(in=nextC, out=C);
+    DFF(in=nextF, out=F);
+    
+    Or(a=F, b=false, out=ButtonPressed);
+    
+    Not(in=P, out=Wait);
+    
+    Not(in=B, out=Red);
+    Or(a=C, b=false, out=Amber);
+    Not(in=C, out=notC);
+    And(a=B, b=notC, out=Green);
+    
+    Mux(a=Red, b=true, sel=A, out=Xnormal2);
+    Mux(a=Amber, b=false, sel=A, out=Xnormal1);
+    Mux(a=Green, b=false, sel=A, out=Xnormal0);
+    
+    Mux(a=true, b=Red, sel=A, out=Znormal2);
+    Mux(a=false, b=Amber, sel=A, out=Znormal1);
+    Mux(a=false, b=Green, sel=A, out=Znormal0);
+    
+    Mux(a=Xnormal2, b=true, sel=P, out=X[2]);
+    Mux(a=Xnormal1, b=false, sel=P, out=X[1]);
+    Mux(a=Xnormal0, b=false, sel=P, out=X[0]);
+    
+    Mux(a=Znormal2, b=true, sel=P, out=Z[2]);
+    Mux(a=Znormal1, b=false, sel=P, out=Z[1]);
+    Mux(a=Znormal0, b=false, sel=P, out=Z[0]);
+}

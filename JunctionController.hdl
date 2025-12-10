@@ -1,0 +1,33 @@
+CHIP JunctionController {
+    IN PowerOn;
+    OUT X[3], Z[3];
+    PARTS:
+    DFF(in=nextA, out=A);
+    DFF(in=nextB, out=B);
+    DFF(in=nextC, out=C);
+    
+    Not(in=B, out=Red);
+    Or(a=C, b=false, out=Amber);
+    Not(in=C, out=notC);
+    And(a=B, b=notC, out=Green);
+    
+    Mux(a=Red, b=true, sel=A, out=X[2]);
+    Mux(a=Amber, b=false, sel=A, out=X[1]);
+    Mux(a=Green, b=false, sel=A, out=X[0]);
+    
+    Mux(a=true, b=Red, sel=A, out=Z[2]);
+    Mux(a=false, b=Amber, sel=A, out=Z[1]);
+    Mux(a=false, b=Green, sel=A, out=Z[0]);
+    
+    Not(in=C, out=notCtemp);
+    Xor(a=B, b=C, out=xorBC);
+    And(a=B, b=C, out=BCis11);
+    Xor(a=A, b=BCis11, out=nextAtemp);
+    
+    Mux(a=xorBC, b=false, sel=BCis11, out=nextBtemp);
+    Mux(a=notCtemp, b=false, sel=BCis11, out=nextCtemp);
+    
+    Mux(a=nextAtemp, b=false, sel=PowerOn, out=nextA);
+    Mux(a=nextBtemp, b=false, sel=PowerOn, out=nextB);
+    Mux(a=nextCtemp, b=false, sel=PowerOn, out=nextC);
+}
