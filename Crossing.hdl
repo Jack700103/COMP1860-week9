@@ -24,8 +24,8 @@ CHIP Crossing {
     And(a=andS2S1, b=S0, out=inTimerState);
     
     Not(in=S0, out=notS0_z);
-    And(a=S2, b=S1, out=andS2S1_z);
-    And(a=andS2S1_z, b=notS0_z, out=zCycleComplete);
+    And(a=S2, b=S1, out=andS2S1z);
+    And(a=andS2S1z, b=notS0z, out=zCycleComplete);
     
     Not(in=inTimerState, out=notInTimerState);
     And(a=notInTimerState, b=Button, out=buttonPressedNow);
@@ -121,45 +121,45 @@ CHIP Crossing {
     Not(in=Timer1, out=nT1);
     Not(in=Timer0, out=nT0);
     
-    And(a=nT3, b=nT2, out=a32_0);
-    And(a=nT1, b=nT0, out=a10_0);
-    And(a=a32_0, b=a10_0, out=is0);
+    And(a=nT3, b=nT2, out=a320);
+    And(a=nT1, b=nT0, out=a100);
+    And(a=a320, b=a100, out=is0);
     
-    And(a=nT3, b=nT2, out=a32_1);
-    And(a=nT1, b=Timer0, out=a10_1);
-    And(a=a32_1, b=a10_1, out=is1);
+    And(a=nT3, b=nT2, out=a321);
+    And(a=nT1, b=Timer0, out=a101);
+    And(a=a321, b=a101, out=is1);
     
-    And(a=nT3, b=nT2, out=a32_2);
-    And(a=Timer1, b=nT0, out=a10_2);
-    And(a=a32_2, b=a10_2, out=is2);
+    And(a=nT3, b=nT2, out=a322);
+    And(a=Timer1, b=nT0, out=a102);
+    And(a=a322, b=a102, out=is2);
     
-    And(a=nT3, b=nT2, out=a32_3);
-    And(a=Timer1, b=Timer0, out=a10_3);
-    And(a=a32_3, b=a10_3, out=is3);
+    And(a=nT3, b=nT2, out=a323);
+    And(a=Timer1, b=Timer0, out=a103);
+    And(a=a323, b=a103, out=is3);
+
+    And(a=nT3, b=Timer2, out=a324);
+    And(a=nT1, b=nT0, out=a104);
+    And(a=a324, b=a104, out=is4);
     
-    And(a=nT3, b=Timer2, out=a32_4);
-    And(a=nT1, b=nT0, out=a10_4);
-    And(a=a32_4, b=a10_4, out=is4);
+    And(a=nT3, b=Timer2, out=a325);
+    And(a=nT1, b=Timer0, out=a105);
+    And(a=a325, b=a105, out=is5);
     
-    And(a=nT3, b=Timer2, out=a32_5);
-    And(a=nT1, b=Timer0, out=a10_5);
-    And(a=a32_5, b=a10_5, out=is5);
+    And(a=nT3, b=Timer2, out=a326);
+    And(a=Timer1, b=nT0, out=a106);
+    And(a=a326, b=a106, out=is6);
     
-    And(a=nT3, b=Timer2, out=a32_6);
-    And(a=Timer1, b=nT0, out=a10_6);
-    And(a=a32_6, b=a10_6, out=is6);
+    And(a=nT3, b=Timer2, out=a327);
+    And(a=Timer1, b=Timer0, out=a107);
+    And(a=a327, b=a107, out=is7);
     
-    And(a=nT3, b=Timer2, out=a32_7);
-    And(a=Timer1, b=Timer0, out=a10_7);
-    And(a=a32_7, b=a10_7, out=is7);
+    And(a=Timer3, b=nT2, out=a328);
+    And(a=nT1, b=nT0, out=a108);
+    And(a=a328, b=a108, out=is8);
     
-    And(a=Timer3, b=nT2, out=a32_8);
-    And(a=nT1, b=nT0, out=a10_8);
-    And(a=a32_8, b=a10_8, out=is8);
-    
-    And(a=Timer3, b=nT2, out=a32_9);
-    And(a=nT1, b=Timer0, out=a10_9);
-    And(a=a32_9, b=a10_9, out=is9);
+    And(a=Timer3, b=nT2, out=a329);
+    And(a=nT1, b=Timer0, out=a109);
+    And(a=a329, b=a109, out=is9);
     
     Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
            in[4]=is6, in[5]=is7, in[6]=is8, in[7]=is9, out=C[6]);
