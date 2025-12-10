@@ -1,193 +1,118 @@
 CHIP Crossing {
     IN PowerOn, Button;
-    OUT ButtonPressed, Wait,
-        X[3], Z[3], C[7];
-    
+    OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+
     PARTS:
-
-    DFF(in=nextS2, out=S2);
     DFF(in=nextS1, out=S1);
-    DFF(in=nextS0, out=S0);
+    DFF(in=nextS2, out=S2);
+    DFF(in=nextS3, out=S3);
+    DFF(in=nextS4, out=S4);
 
-    DFF(in=nextButtonReg, out=ButtonReg);
+    And(a=S2, b=S1, out=S2S1);
+    And(a=S2, b=S0, out=S2S0);
+    Xor(a=S2S1, b=S2S0, out=XorS2S1S0);
+    Not(in=S0, out=NotS0);
 
-    DFF(in=nextTimer3, out=Timer3);
-    DFF(in=nextTimer2, out=Timer2);
-    DFF(in=nextTimer1, out=Timer1);
-    DFF(in=nextTimer0, out=Timer0);
+    Not(in=S3, out=NotS3);
+    And(a=S4, b=NotS3, out=S4NotS3);
+    And(a=S4, b=S3, out=S4S3);
+    Not(in=S0, out=notS0normal);
+    Xor(a=S1, b=S0, out=xorS1S0normal);
+    And(a=S1, b=S0, out=andS1S0normal);
+    Xor(a=S2, b=andS1S0normal, out=nextS2normal);
+    Mux(a=false, b=xorS1S0normal, sel=PowerOn, out=nextS1normal);
+    Mux(a=false, b=notS0normal, sel=PowerOn, out=nextS0normal);
 
-    Not(in=S0, out=notS0);
-    Xor(a=S1, b=S0, out=xorS1S0);
-    And(a=S1, b=S0, out=andS1S0);
-    Xor(a=S2, b=andS1S0, out=xorS2);
- 
-    And(a=S2, b=S1, out=andS2S1);
-    And(a=andS2S1, b=S0, out=inTimerState);
-
-    Not(in=S0, out=notS0z);
-    And(a=S2, b=S1, out=andS2S1z);
-    And(a=andS2S1z, b=notS0z, out=zCycleComplete);
-
-    Not(in=inTimerState, out=notInTimerState);
-    And(a=notInTimerState, b=Button, out=buttonPressedNow);
-    Or(a=buttonPressedNow, b=ButtonReg, out=nextButtonRegTemp);
-
-    Not(in=Timer3, out=notT3);
-    Not(in=Timer2, out=notT2);
-    Not(in=Timer1, out=notT1);
-    Not(in=Timer0, out=notT0);
+    Mux(a=false, b=true, sel=Button, out=SetS9);
     
-    And(a=notT3, b=notT2, out=t32zero);
-    And(a=notT1, b=notT0, out=t10zero);
-    And(a=t32zero, b=t10zero, out=timerIsZero);
-    Not(in=timerIsZero, out=timerNotZero);
+    Not(in=Timer0, out=NotT0);
+    Not(in=Timer1, out=NotT1);
+    Not(in=Timer2, out=NotT2);
+    Not(in=Timer3, out=NotT3);
+    Not(in=Timer4, out=NotT4);
+    And(a=NotT0, b=NotT1, out=and01);
+    And(a=NotT2, b=NotT3, out=and23);
+    And(a=and01, b=and23, out=and0123);
+    And(a=and0123, b=NotT4, out=TimerIs0);
+    Not(in=TimerIs0, out=NotTimerIs0);
 
-    And(a=inTimerState, b=timerIsZero, out=clearButton);
-    Not(in=clearButton, out=notClearButton);
-    And(a=nextButtonRegTemp, b=notClearButton, out=nextButtonReg);
+    Mux(a=nextS2normal, b=SetS9, sel=S4, out=nextS2mux);
+    Mux(a=nextS1normal, b=SetS9, sel=S4, out=nextS1mux);
+    Mux(a=nextS0normal, b=SetS9, sel=S4, out=nextS0mux);
 
-    Mux(a=false, b=true, sel=ButtonReg, out=ButtonPressed);
+    Mux(a=NotTimerIs0, b=false, sel=S4S3, out=HoldS9);
+    Mux(a=SetS9, b=HoldS9, sel=S4NotS3, out=nextS3_mux);
+    Mux(a=true, b=false, sel=S4, out=nextS4_mux);
 
-    Not(in=inTimerState, out=Wait);
-    
-    Not(in=Timer0, out=dec0);
+    Mux(a=nextS2mux, b=nextS2normal, sel=PowerOn, out=nextS2);
+    Mux(a=nextS1mux, b=nextS1normal, sel=PowerOn, out=nextS1);
+    Mux(a=nextS0mux, b=nextS0normal, sel=PowerOn, out=nextS0);
+    Mux(a=nextS3_mux, b=false, sel=PowerOn, out=nextS3);
+    Mux(a=nextS4_mux, b=false, sel=PowerOn, out=nextS4);
 
-    And(a=Timer0, b=true, out=borrow0temp);
-    Not(in=Timer0, out=notTimer0);
-    And(a=notTimer0, b=true, out=borrow0);
-    
-    Xor(a=Timer1, b=borrow0, out=dec1temp);
-    And(a=Timer1, b=borrow0, out=borrow1temp);
-    
-    // 修正第61行：将嵌套的And门拆分为独立信号
-    And(a=notT1, b=borrow0, out=andnotT1borrow0);
-    Or(a=andnotT1borrow0, b=borrow1temp, out=borrow1);
-    
-    Xor(a=Timer2, b=borrow1, out=dec2temp);
-    And(a=Timer2, b=borrow1, out=borrow2temp);
-    
-    // 修正第64行：同样处理嵌套的And门
-    And(a=notT2, b=borrow1, out=andnotT2borrow1);
-    Or(a=andnotT2borrow1, b=borrow2temp, out=borrow2);
-    
-    Xor(a=Timer3, b=borrow2, out=dec3temp);
+    Or(a=Button, b=ButtonPressed, out=nextButtonPressed);
 
-    Or(a=dec0, b=false, out=dec0final);
-    Or(a=dec1temp, b=false, out=dec1final);
-    Or(a=dec2temp, b=false, out=dec2final);
-    Or(a=dec3temp, b=false, out=dec3final);
+    Mux(a=false, b=true, sel=S4NotS3, out=Wait);
 
-    And(a=ButtonReg, b=zCycleComplete, out=enterTimerState);
+    Mux(a=S1, b=false, sel=S2, out=xstate1normal);
+    Mux(a=S0, b=false, sel=S2, out=xstate0normal);
+    Not(in=xstate1normal, out=X2normal);
+    Or(a=xstate0normal, b=false, out=X1normal);
+    Not(in=xstate0normal, out=notxstate0normal);
+    And(a=xstate1normal, b=notxstate0normal, out=X0normal);
 
-    Mux(a=dec0final, b=true, sel=enterTimerState, out=nextTimer0load);
-    Mux(a=dec1final, b=false, sel=enterTimerState, out=nextTimer1load);
-    Mux(a=dec2final, b=false, sel=enterTimerState, out=nextTimer2load);
-    Mux(a=dec3final, b=true, sel=enterTimerState, out=nextTimer3load);
-    
-    Mux(a=false, b=nextTimer0load, sel=inTimerState, out=nextTimer0temp);
-    Mux(a=false, b=nextTimer1load, sel=inTimerState, out=nextTimer1temp);
-    Mux(a=false, b=nextTimer2load, sel=inTimerState, out=nextTimer2temp);
-    Mux(a=false, b=nextTimer3load, sel=inTimerState, out=nextTimer3temp);
-    
-    Mux(a=nextTimer0temp, b=false, sel=PowerOn, out=nextTimer0);
-    Mux(a=nextTimer1temp, b=false, sel=PowerOn, out=nextTimer1);
-    Mux(a=nextTimer2temp, b=false, sel=PowerOn, out=nextTimer2);
-    Mux(a=nextTimer3temp, b=false, sel=PowerOn, out=nextTimer3);
+    Mux(a=false, b=S1, sel=S2, out=zstate1normal);
+    Mux(a=false, b=S0, sel=S2, out=zstate0normal);
+    Not(in=zstate1normal, out=Z2normal);
+    Or(a=zstate0normal, b=false, out=Z1normal);
+    Not(in=zstate0normal, out=notzstate0normal);
+    And(a=zstate1normal, b=notzstate0normal, out=Z0normal);
 
-    And(a=inTimerState, b=timerNotZero, out=stayInTimer);
+    Mux(a=X2normal, b=true, sel=S4, out=X2);
+    Mux(a=X1normal, b=false, sel=S4, out=X1);
+    Mux(a=X0normal, b=false, sel=S4, out=X0);
+    Mux(a=Z2normal, b=true, sel=S4, out=Z2);
+    Mux(a=Z1normal, sel=S4, b=false, out=Z1);
+    Mux(a=Z0normal, sel=S4, b=false, out=Z0);
 
-    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2Normal);
-    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1Normal);
-    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0Normal);
+    X[0] = X0;
+    X[1] = X1;
+    X[2] = X2;
+    Z[0] = Z0;
+    Z[1] = Z1;
+    Z[2] = Z2;
 
-    Mux(a=nextS2Normal, b=true, sel=enterTimerState, out=nextS2Temp);
-    Mux(a=nextS1Normal, b=true, sel=enterTimerState, out=nextS1Temp);
-    Mux(a=nextS0Normal, b=true, sel=enterTimerState, out=nextS0Temp);
+    DFF(in=TimerReset[0], out=Timer0);
+    DFF(in=TimerReset[1], out=Timer1);
+    DFF(in=TimerReset[2], out=Timer2);
+    DFF(in=TimerReset[3], out=Timer3);
+    DFF(in=TimerReset[4], out=Timer4);
 
-    Mux(a=nextS2Temp, b=S2, sel=stayInTimer, out=nextS2);
-    Mux(a=nextS1Temp, b=S1, sel=stayInTimer, out=nextS1);
-    Mux(a=nextS0Temp, b=S0, sel=stayInTimer, out=nextS0);
+    Not(in=Timer0, out=NotTimer0);
+    And(a=Timer0, b=Timer1, out=Carry2);
+    And(a=Carry2, b=Timer2, out=Carry3);
+    And(a=Carry3, b=Timer3, out=Carry4);
 
-    Mux(a=S1, b=false, sel=S2, out=xstate1);
-    Mux(a=S0, b=false, sel=S2, out=xstate0);
-    
-    Mux(a=false, b=S1, sel=S2, out=zstate1);
-    Mux(a=false, b=S0, sel=S2, out=zstate0);
+    And(a=S4, b=S3, out=EnableTimer);
 
-    Mux(a=xstate1, b=true, sel=inTimerState, out=xstate1Final);
-    Mux(a=xstate0, b=false, sel=inTimerState, out=xstate0Final);
-    Mux(a=zstate1, b=true, sel=inTimerState, out=zstate1Final);
-    Mux(a=zstate0, b=false, sel=inTimerState, out=zstate0Final);
+    Mux(a=Timer0, b=NotTimer0, sel=EnableTimer, out=nextTimer0);
+    And(a=EnableTimer, b=Timer0, out=EnableTimer1);
+    Mux(a=Timer1, b=NotTimer1, sel=EnableTimer1, out=nextTimer1);
+    And(a=EnableTimer1, b=Timer1, out=EnableTimer2);
+    Mux(a=Timer2, b=NotTimer2, sel=EnableTimer2, out=nextTimer2);
+    And(a=EnableTimer2, b=Timer2, out=EnableTimer3);
+    Mux(a=Timer3, b=NotTimer3, sel=EnableTimer3, out=nextTimer3);
+    And(a=EnableTimer3, b=Timer3, out=EnableTimer4);
+    Mux(a=Timer4, b=NotTimer4, sel=EnableTimer4, out=nextTimer4);
 
-    Not(in=xstate1Final, out=X[2]);
-    Or(a=xstate0Final, b=false, out=X[1]);
-    Not(in=xstate0Final, out=notxstate0);
-    And(a=xstate1Final, b=notxstate0, out=X[0]);
+    Mux(a=9, b={Timer4,Timer3,Timer2,Timer1,Timer0}, sel=SetS9, out=TimerInit);
+    Mux(a=TimerInit, b=0, sel=PowerOn, out=TimerReset);
 
-    Not(in=zstate1Final, out=Z[2]);
-    Or(a=zstate0Final, b=false, out=Z[1]);
-    Not(in=zstate0Final, out=notzstate0);
-    And(a=zstate1Final, b=notzstate0, out=Z[0]);
+    Mux(a=0, b=1, sel=Timer[3], out=D3);
+    Mux(a=D3, b=Timer[2], sel=Timer[3], out=D2);
+    Mux(a=D2, b=Timer[1], sel=Timer[3], out=D1);
+    Mux(a=D1, b=Timer[0], sel=Timer[3], out=D0);
+    ROM7(address={Timer[4],D2,D1,D0}, out=C);
 
-    And(a=notT3, b=notT2, out=a320);
-    And(a=notT1, b=notT0, out=a100);
-    And(a=a320, b=a100, out=is0);
-    
-    And(a=notT3, b=notT2, out=a321);
-    And(a=notT1, b=Timer0, out=a101);
-    And(a=a321, b=a101, out=is1);
-    
-    And(a=notT3, b=notT2, out=a322);
-    And(a=Timer1, b=notT0, out=a102);
-    And(a=a322, b=a102, out=is2);
-    
-    And(a=notT3, b=notT2, out=a323);
-    And(a=Timer1, b=Timer0, out=a103);
-    And(a=a323, b=a103, out=is3);
-    
-    And(a=notT3, b=Timer2, out=a324);
-    And(a=notT1, b=notT0, out=a104);
-    And(a=a324, b=a104, out=is4);
-    
-    And(a=notT3, b=Timer2, out=a325);
-    And(a=notT1, b=Timer0, out=a105);
-    And(a=a325, b=a105, out=is5);
-    
-    And(a=notT3, b=Timer2, out=a326);
-    And(a=Timer1, b=notT0, out=a106);
-    And(a=a326, b=a106, out=is6);
-    
-    And(a=notT3, b=Timer2, out=a327);
-    And(a=Timer1, b=Timer0, out=a107);
-    And(a=a327, b=a107, out=is7);
-    
-    And(a=Timer3, b=notT2, out=a328);
-    And(a=notT1, b=notT0, out=a108);
-    And(a=a328, b=a108, out=is8);
-    
-    And(a=Timer3, b=notT2, out=a329);
-    And(a=notT1, b=Timer0, out=a109);
-    And(a=a329, b=a109, out=is9);
-
-    Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
-           in[4]=is6, in[5]=is7, in[6]=is8, in[7]=is9, out=C[6]);
-
-    Or8Way(in[0]=is0, in[1]=is1, in[2]=is2, in[3]=is3,
-           in[4]=is4, in[5]=is7, in[6]=is8, in[7]=is9, out=C[5]);
-
-    Or8Way(in[0]=is0, in[1]=is1, in[2]=is3, in[3]=is4,
-           in[4]=is5, in[5]=is6, in[6]=is7, in[7]=is8, out=cpart1);
-    Or(a=cpart1, b=is9, out=C[4]);
-
-    Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
-           in[4]=is6, in[5]=is8, in[6]=is9, in[7]=false, out=C[3]);
-
-    Or8Way(in[0]=is0, in[1]=is2, in[2]=is6, in[3]=is8,
-           in[4]=false, in[5]=false, in[6]=false, in[7]=false, out=C[2]);
-
-    Or8Way(in[0]=is0, in[1]=is4, in[2]=is5, in[3]=is6,
-           in[4]=is8, in[5]=is9, in[6]=false, in[7]=false, out=C[1]);
-
-    Or8Way(in[0]=is2, in[1]=is3, in[2]=is4, in[3]=is5,
-           in[4]=is6, in[5]=is8, in[6]=is9, in[7]=false, out=C[0]);
+    Mux(a=ButtonPressed, b=false, sel=PowerOn, out=nextButtonPressed);
 }
