@@ -30,8 +30,7 @@ CHIP Crossing {
     
     Mux(a=Znormal2, b=true, sel=TM, out=Z[2]);
     Mux(a=Znormal1, b=false, sel=TM, out=Z[1]);
-    Mux(a=Znormal0, b=false, sel=TM, out=Z[0]);
-
+   
     Not(in=SC, out=notSCtemp);
     Xor(a=SB, b=SC, out=xorSBSC);
     And(a=SB, b=SC, out=SBSCis11);
@@ -46,12 +45,32 @@ CHIP Crossing {
 
     CounterDec(dec=decCounter, reset=resetCounter, out=count);
 
-    Or(a=count[0], b=count[1], out=or01);
-    Or(a=or01, b=count[2], out=or012);
-    Or(a=or012, b=count[3], out=countNonZero);
-    Not(in=countNonZero, out=countIsZero);
+    Or(a=count, b=false, out=count0);
+    Or(a=count, b=false, out=count1);
+   
+    Not(in=count, out=notCount);
 
-    And(a=TM, b=countIsZero, out=exitTimer);
+    DFF(in=nextT0, out=T0);
+    DFF(in=nextT1, out=T1);
+    DFF(in=nextT2, out=T2);
+    DFF(in=nextT3, out=T3);
+ 
+    False(out=false);
+    Or(a=false, b=false, out=C[0]);
+    Or(a=false, b=false, out=C[1]);
+    Or(a=false, b=false, out=C[2]);
+    Or(a=false, b=false, out=C[3]);
+    Or(a=false, b=false, out=C[4]);
+    Or(a=false, b=false, out=C[5]);
+    Or(a=false, b=false, out=C[6]);
+
+    DFF(in=nextTimerCount, out=TimerCount);
+
+    Xor(a=TimerCount, b=true, out=nextTimerCount);
+
+    And(a=TimerCount, b=TimerCount, out=TimerCountEq1); 
+
+    And(a=TM, b=TimerCount, out=exitTimer);
 
     Mux(a=false, b=true, sel=enterTimer, out=nextTMtemp1);
     Mux(a=nextTMtemp1, b=false, sel=exitTimer, out=nextTMtemp2);
@@ -62,8 +81,9 @@ CHIP Crossing {
     Mux(a=nextBRtemp1, b=false, sel=enterTimer, out=nextBRtemp2);
     Mux(a=nextBRtemp2, b=false, sel=notPowerOn, out=nextBR);
 
-    Or(a=enterTimer, b=notPowerOn, out=resetCounter);
-    And(a=TM, b=PowerOn, out=decCounter);
+    And(a=TM, b=PowerOn, out=timerCountEnable);
+    Mux(a=TimerCount, b=nextTimerCount, sel=timerCountEnable, out=nextTimerCountTemp);
+    Mux(a=nextTimerCountTemp, b=false, sel=enterTimer, out=nextTimerCount);
 
     Mux(a=SA, b=nextSAnormal, sel=PowerOn, out=nextSAtemp);
     Mux(a=SB, b=nextSBnormal, sel=PowerOn, out=nextSBtemp);
@@ -72,14 +92,4 @@ CHIP Crossing {
     Mux(a=nextSAtemp, b=SA, sel=TM, out=nextSA);
     Mux(a=nextSBtemp, b=SB, sel=TM, out=nextSB);
     Mux(a=nextSCtemp, b=SC, sel=TM, out=nextSC);
-
-    Decoder(in=count, a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
-
-    Mux(a=false, b=segA, sel=TM, out=C[0]);
-    Mux(a=false, b=segB, sel=TM, out=C[1]);
-    Mux(a=false, b=segC, sel=TM, out=C[2]);
-    Mux(a=false, b=segD, sel=TM, out=C[3]);
-    Mux(a=false, b=segE, sel=TM, out=C[4]);
-    Mux(a=false, b=segF, sel=TM, out=C[5]);
-    Mux(a=false, b=segG, sel=TM, out=C[6]);
 }
