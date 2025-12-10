@@ -1,36 +1,92 @@
 CHIP Crossing {
     IN PowerOn, Button;
-    OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+    OUT ButtonPressed, Wait,
+    X[3], Z[3], C[7];
     PARTS:
-    DFF(in=nextP, out=P);
-    DFF(in=nextA, out=A);
-    DFF(in=nextB, out=B);
-    DFF(in=nextC, out=C);
-    DFF(in=nextF, out=F);
+    DFF(in=Button, out=buttonprev);
+    Xor(a=buttonprev, b=Button, out=buttonrise);
+    DFF(in=buttonrise, out=buttonrisereg);
+    reg buttonpressedreg;
+    DFF(in=buttonpressedregnext, out=buttonpressedreg);
 
-    Or(a=F, b=false, out=ButtonPressed);
+    Or(a=buttonpressedreg, b=buttonrisereg, out=buttonpressedregnext);
 
-    Not(in=P, out=Wait);
+    ButtonPressed = buttonpressedreg;
 
-    Not(in=B, out=Red);
-    Or(a=C, b=false, out=Amber);
-    Not(in=C, out=notC);
-    And(a=B, b=notC, out=Green);
-    
-    Mux(a=Red, b=true, sel=A, out=Xnormal2);
-    Mux(a=Amber, b=false, sel=A, out=Xnormal1);
-    Mux(a=Green, b=false, sel=A, out=Xnormal0);
-    
-    Mux(a=true, b=Red, sel=A, out=Znormal2);
-    Mux(a=false, b=Amber, sel=A, out=Znormal1);
-    Mux(a=false, b=Green, sel=A, out=Znormal0);
+    reg [3:0] pedestriancount;
+    DFF(in=pedestriancountnext, out=pedestriancount);
 
-    Mux(a=Xnormal2, b=true, sel=P, out=X[2]);
-    Mux(a=Xnormal1, b=false, sel=P, out=X[1]);
-    Mux(a=Xnormal0, b=false, sel=P, out=X[0]);
-    
-    Mux(a=Znormal2, b=true, sel=P, out=Z[2]);
-    Mux(a=Znormal1, b=false, sel=P, out=Z[1]);
-    Mux(a=Znormal0, b=false, sel=P, out=Z[0]);
+    Mux(a=9, b=pedestriancount-1, sel=(nextstate4), out=pedestriancountnext);
 
+    And(a=nextS2, b=nextS1, b=nextS0, out=nextstate4);
+
+    And(a=S2, b=S1, b=S0, out=state0);
+    And(a=S2, b=S1, b=notS0, out=state1);
+    And(a=S2, b=notS1, b=S0, out=state2);
+    And(a=S2, b=notS1, b=notS0, out=state3);
+    And(a=notS2, b=S1, b=S0, out=state4);
+
+    Mux(a=0, b=0, sel=state0, out=nextS2);
+    Mux(a=0, b=0, sel=state1, out=nextS2);
+    Mux(a=1, b=0, sel=state2, out=nextS2);
+    Mux(a=0, b=0, sel=state3, out=nextS2);
+    Mux(a=0, b=1, sel=state4, out=nextS2);
+
+    Mux(a=0, b=1, sel=state0, out=nextS1);
+    Mux(a=0, b=0, sel=state1, out=nextS1);
+    Mux(a=0, b=1, sel=state2, out=nextS1);
+    Mux(a=0, b=0, sel=state3, out=nextS1);
+    Mux(a=0, b=0, sel=state4, out=nextS1);
+
+    Mux(a=1, b=0, sel=state0, out=nextS0);
+    Mux(a=0, b=0, sel=state1, out=nextS0);
+    Mux(a=0, b=1, sel=state2, out=nextS0);
+    Mux(a=0, b=0, sel=state3, out=nextS0);
+    Mux(a=0, b=0, sel=state4, out=nextS0);
+ 
+    DFF(in=nextS2, out=S2);
+    DFF(in=nextS1, out=S1);
+    DFF(in=nextS0, out=S0);
+
+    And(a=notS2, b=S1, b=S0, out=instate4);
+    And(a=S2, b=notS1, b=notS0, out=instate4); 
+
+    Wait = !instate4;
+
+    Mux(a=S1, b=false, sel=S2, out=xstate1);
+    Mux(a=S0, b=false, sel=S2, out=xstate0);
+    Not(in=xstate1, out=Xnormal[2]);
+    Or(a=xstate0, b=false, out=Xnormal[1]); 
+    Not(in=xstate0, out=notxstate0);
+    And(a=xstate1, b=notxstate0, out=Xnormal[0]);
+
+    Mux(a=false, b=S1, sel=S2, out=zstate1);
+    Mux(a=false, b=S0, sel=S2, out=zstate0);
+    Not(in=zstate1, out=Znormal[2]);
+    Or(a=zstate0, b=false, out=Znormal[1]);
+    Not(in=zstate0, out=notzstate0);
+    And(a=zstate1, b=notzstate0, out=Znormal[0]);
+
+    Mux(a=Xnormal[2], b=1, sel=instate4, out=X[2]);
+    Mux(a=Xnormal[1], b=0, sel=instate4, out=X[1]);
+    Mux(a=Xnormal[0], b=0, sel=instate4, out=X[0]);
+    Mux(a=Znormal[2], b=1, sel=instate4, out=Z[2]);
+    Mux(a=Znormal[1], b=0, sel=instate4, out=Z[1]);
+    Mux(a=Znormal[0], b=0, sel=instate4, out=Z[0]);
+
+    Mux(a=0, b=1, sel=(pedestriancount==0), out=C[0]);
+    Mux(a=0, b=1, sel=(pedestriancount==1), out=C[1]);
+    Mux(a=0, b=1, sel=(pedestriancount==2), out=C[2]);
+    Mux(a=0, b=1, sel=(pedestriancount==3), out=C[3]);
+    Mux(a=0, b=1, sel=(pedestriancount==4), out=C[4]);
+    Mux(a=0, b=1, sel=(pedestriancount==5), out=C[5]);
+    Mux(a=0, b=1, sel=(pedestriancount==6), out=C[6]);
+ 
+    Mux(a=1, b=0, sel=(pedestriancount==0), out=C[0]);
+    Mux(a=1, b=0, sel=(pedestriancount==1), out=C[1]);
+    Mux(a=1, b=0, sel=(pedestriancount==2), out=C[2]);
+    Mux(a=1, b=0, sel=(pedestriancount==3), out=C[3]);
+    Mux(a=1, b=0, sel=(pedestriancount==4), out=C[4]);
+    Mux(a=1, b=0, sel=(pedestriancount==5), out=C[5]);
+    Mux(a=1, b=0, sel=(pedestriancount==6), out=C[6]);
 }
