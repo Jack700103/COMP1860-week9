@@ -3,10 +3,12 @@ CHIP Crossing {
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
 
     PARTS:
+
     DFF(in=nextS1, out=S1);
     DFF(in=nextS2, out=S2);
     DFF(in=nextS3, out=S3);
     DFF(in=nextS4, out=S4);
+
 
     And(a=S2, b=S1, out=S2S1);
     And(a=S2, b=S0, out=S2S0);
@@ -23,8 +25,9 @@ CHIP Crossing {
     Mux(a=false, b=xorS1S0normal, sel=PowerOn, out=nextS1normal);
     Mux(a=false, b=notS0normal, sel=PowerOn, out=nextS0normal);
 
+
     Mux(a=false, b=true, sel=Button, out=SetS9);
-    
+
     Not(in=Timer0, out=NotT0);
     Not(in=Timer1, out=NotT1);
     Not(in=Timer2, out=NotT2);
@@ -41,15 +44,15 @@ CHIP Crossing {
     Mux(a=nextS0normal, b=SetS9, sel=S4, out=nextS0mux);
 
     Mux(a=NotTimerIs0, b=false, sel=S4S3, out=HoldS9);
-    Mux(a=SetS9, b=HoldS9, sel=S4NotS3, out=nextS3_mux);
-    Mux(a=true, b=false, sel=S4, out=nextS4_mux);
+    Mux(a=SetS9, b=HoldS9, sel=S4NotS3, out=nextS3mux);
+    Mux(a=true, b=false, sel=S4, out=nextS4mux);
 
     Mux(a=nextS2mux, b=nextS2normal, sel=PowerOn, out=nextS2);
     Mux(a=nextS1mux, b=nextS1normal, sel=PowerOn, out=nextS1);
     Mux(a=nextS0mux, b=nextS0normal, sel=PowerOn, out=nextS0);
-    Mux(a=nextS3_mux, b=false, sel=PowerOn, out=nextS3);
-    Mux(a=nextS4_mux, b=false, sel=PowerOn, out=nextS4);
-
+    Mux(a=nextS3mux, b=false, sel=PowerOn, out=nextS3);
+    Mux(a=nextS4mux, b=false, sel=PowerOn, out=nextS4);
+ 
     Or(a=Button, b=ButtonPressed, out=nextButtonPressed);
 
     Mux(a=false, b=true, sel=S4NotS3, out=Wait);
@@ -87,14 +90,12 @@ CHIP Crossing {
     DFF(in=TimerReset[2], out=Timer2);
     DFF(in=TimerReset[3], out=Timer3);
     DFF(in=TimerReset[4], out=Timer4);
-
     Not(in=Timer0, out=NotTimer0);
     And(a=Timer0, b=Timer1, out=Carry2);
     And(a=Carry2, b=Timer2, out=Carry3);
     And(a=Carry3, b=Timer3, out=Carry4);
 
     And(a=S4, b=S3, out=EnableTimer);
-
     Mux(a=Timer0, b=NotTimer0, sel=EnableTimer, out=nextTimer0);
     And(a=EnableTimer, b=Timer0, out=EnableTimer1);
     Mux(a=Timer1, b=NotTimer1, sel=EnableTimer1, out=nextTimer1);
