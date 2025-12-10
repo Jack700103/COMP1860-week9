@@ -136,7 +136,7 @@ CHIP Crossing {
     And(a=nT3, b=nT2, out=a323);
     And(a=Timer1, b=Timer0, out=a103);
     And(a=a323, b=a103, out=is3);
-
+    
     And(a=nT3, b=Timer2, out=a324);
     And(a=nT1, b=nT0, out=a104);
     And(a=a324, b=a104, out=is4);
