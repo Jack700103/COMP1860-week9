@@ -8,6 +8,16 @@ CHIP Crossing {
     DFF(in=nextS1, out=S1);
     DFF(in=nextS0, out=S0);
     
+    DFF(CHIP Crossing {
+    IN PowerOn, Button;
+    OUT ButtonPressed, Wait,
+        X[3], Z[3], C[7];
+    
+    PARTS:
+    DFF(in=nextS2, out=S2);
+    DFF(in=nextS1, out=S1);
+    DFF(in=nextS0, out=S0);
+    
     DFF(in=nextButtonReg, out=ButtonReg);
     
     DFF(in=nextTimer3, out=Timer3);
@@ -38,8 +48,6 @@ CHIP Crossing {
 
     Or(a=ButtonReg, b=buttonPressedNow, out=ButtonPressed);
 
-    Or(a=inTimerState, b=false, out=Wait);
-    Not(in=Wait, out=WaitInv); 
     Mux(a=false, b=true, sel=inNormalState, out=Wait);
 
     Or(a=Timer3, b=Timer2, out=or32);
@@ -73,11 +81,11 @@ CHIP Crossing {
     Mux(a=nextS1Temp, b=false, sel=inTimerState, out=nextS1Timer);
     Mux(a=nextS0Temp, b=false, sel=inTimerState, out=nextS0Timer);
     
-    Mux(a=nextS2Timer, b=true, sel=And(a=inTimerState, b=timerNotZero), out=nextS2);
-    Mux(a=nextS1Timer, b=true, sel=And(a=inTimerState, b=timerNotZero), out=nextS1);
-    Mux(a=nextS0Timer, b=true, sel=And(a=inTimerState, b=timerNotZero), out=nextS0);
+    And(a=inTimerState, b=timerNotZero, out=stayInTimer);
+    Mux(a=nextS2Timer, b=true, sel=stayInTimer, out=nextS2);
+    Mux(a=nextS1Timer, b=true, sel=stayInTimer, out=nextS1);
+    Mux(a=nextS0Timer, b=true, sel=stayInTimer, out=nextS0);
     
-
     Mux(a=false, b=true, sel=enterTimer, out=loadTimer9);
 
     Mux(a=nextTimer0Raw, b=true, sel=loadTimer9, out=nextTimer0Load);
