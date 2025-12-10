@@ -2,32 +2,32 @@ CHIP JunctionController {
     IN PowerOn;
     OUT X[3], Z[3];
     PARTS:
-    DFF(in=nextA, out=A);
-    DFF(in=nextB, out=B);
-    DFF(in=nextC, out=C);
+    DFF(in=nextS2, out=S2);
+    DFF(in=nextS1, out=S1);
+    DFF(in=nextS0, out=S0);
     
-    Not(in=B, out=Red);
-    Or(a=C, b=false, out=Amber);
-    Not(in=C, out=notC);
-    And(a=B, b=notC, out=Green);
+    Not(in=S0, out=notS0);
+    Xor(a=S1, b=S0, out=xorS1S0);
+    And(a=S1, b=S0, out=andS1S0);
+    Xor(a=S2, b=andS1S0, out=xorS2);
     
-    Mux(a=Red, b=true, sel=A, out=X[2]);
-    Mux(a=Amber, b=false, sel=A, out=X[1]);
-    Mux(a=Green, b=false, sel=A, out=X[0]);
+    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2);
+    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1);
+    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0);
     
-    Mux(a=true, b=Red, sel=A, out=Z[2]);
-    Mux(a=false, b=Amber, sel=A, out=Z[1]);
-    Mux(a=false, b=Green, sel=A, out=Z[0]);
+    Mux(a=S1, b=false, sel=S2, out=xstate1);
+    Mux(a=S0, b=false, sel=S2, out=xstate0);
     
-    Not(in=C, out=notCtemp);
-    Xor(a=B, b=C, out=xorBC);
-    And(a=B, b=C, out=BCis11);
-    Xor(a=A, b=BCis11, out=nextAtemp);
+    Mux(a=false, b=S1, sel=S2, out=zstate1);
+    Mux(a=false, b=S0, sel=S2, out=zstate0);
     
-    Mux(a=xorBC, b=false, sel=BCis11, out=nextBtemp);
-    Mux(a=notCtemp, b=false, sel=BCis11, out=nextCtemp);
+    Not(in=xstate1, out=X[2]);
+    Or(a=xstate0, b=false, out=X[1]);
+    Not(in=xstate0, out=notxstate0);
+    And(a=xstate1, b=notxstate0, out=X[0]);
     
-    Mux(a=nextAtemp, b=false, sel=PowerOn, out=nextA);
-    Mux(a=nextBtemp, b=false, sel=PowerOn, out=nextB);
-    Mux(a=nextCtemp, b=false, sel=PowerOn, out=nextC);
+    Not(in=zstate1, out=Z[2]);
+    Or(a=zstate0, b=false, out=Z[1]);
+    Not(in=zstate0, out=notzstate0);
+    And(a=zstate1, b=notzstate0, out=Z[0]);
 }

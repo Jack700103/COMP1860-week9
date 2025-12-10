@@ -7,11 +7,11 @@ CHIP Crossing {
     DFF(in=nextB, out=B);
     DFF(in=nextC, out=C);
     DFF(in=nextF, out=F);
-    
+
     Or(a=F, b=false, out=ButtonPressed);
-    
+
     Not(in=P, out=Wait);
-    
+
     Not(in=B, out=Red);
     Or(a=C, b=false, out=Amber);
     Not(in=C, out=notC);
@@ -24,7 +24,7 @@ CHIP Crossing {
     Mux(a=true, b=Red, sel=A, out=Znormal2);
     Mux(a=false, b=Amber, sel=A, out=Znormal1);
     Mux(a=false, b=Green, sel=A, out=Znormal0);
-    
+
     Mux(a=Xnormal2, b=true, sel=P, out=X[2]);
     Mux(a=Xnormal1, b=false, sel=P, out=X[1]);
     Mux(a=Xnormal0, b=false, sel=P, out=X[0]);
@@ -32,4 +32,5 @@ CHIP Crossing {
     Mux(a=Znormal2, b=true, sel=P, out=Z[2]);
     Mux(a=Znormal1, b=false, sel=P, out=Z[1]);
     Mux(a=Znormal0, b=false, sel=P, out=Z[0]);
+
 }

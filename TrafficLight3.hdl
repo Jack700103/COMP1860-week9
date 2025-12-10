@@ -2,15 +2,17 @@ CHIP TrafficLight3 {
     IN PowerOn;
     OUT X[3];
     PARTS:
-    DFF(in=nextS0, out=S0);
-    DFF(in=nextS1, out=S1);
+    DFF(in=nextS1, out=currentS1);
+    DFF(in=nextS0, out=currentS0);
     
-    Not(in=S0, out=notS0);
-    Xor(a=S1, b=S0, out=xorOut);
-    Mux(a=notS0, b=false, sel=PowerOn, out=nextS0);
-    Mux(a=xorOut, b=false, sel=PowerOn, out=nextS1);
+    Xor(a=currentS1, b=currentS0, out=normalNextS1);
+    Not(in=currentS0, out=normalNextS0);
     
-    Not(in=S1, out=X[2]);
-    Or(a=S0, b=false, out=X[1]);
-    And(a=S1, b=notS0, out=X[0]);
+    Mux(a=false, b=normalNextS1, sel=PowerOn, out=nextS1);
+    Mux(a=false, b=normalNextS0, sel=PowerOn, out=nextS0);
+    
+    Not(in=currentS1, out=X[2]);
+    Or(a=currentS0, b=false, out=X[1]);
+    Not(in=currentS0, out=notS0);
+    And(a=currentS1, b=notS0, out=X[0]);
 }
