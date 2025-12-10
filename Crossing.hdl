@@ -31,6 +31,6 @@ CHIP Crossing {
     
     Mux(a=[1,0,0], b=[Z[2], Z[1], Z[0]], sel=Wait, out=Z);
     
-    Counter4(in=!Wait, load=9, up=false, out=timer);
-    Decoder7Seg(in=timer, out=C);
+    CounterDec(in=!Wait, load=9, up=false, out=timer);
+    Decoder(in=timer, out=C);
 }
