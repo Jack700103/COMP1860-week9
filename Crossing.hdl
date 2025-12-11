@@ -14,15 +14,16 @@ CHIP Crossing {
     And(a=s0, b=nots1, out=state1);     
     And(a=nots0, b=s1, out=state2);     
 
-    JunctionController(PowerOn=PowerOn, X=Xjunc, Z=Zjunc);
+    JunctionController(PowerOn=PowerOn, X0=Xjunc0, X1=Xjunc1, X2=Xjunc2, 
+                       Z0=Zjunc0, Z1=Zjunc1, Z2=Zjunc2);
+ 
+    DFF(in=Xjunc0, out=Xtemp0);
+    DFF(in=Xjunc1, out=Xtemp1);
+    DFF(in=Xjunc2, out=Xtemp2);
 
-    DFF(in=Xjunc[0], out=Xtemp0);
-    DFF(in=Xjunc[1], out=Xtemp1);
-    DFF(in=Xjunc[2], out=Xtemp2);
-
-    DFF(in=Zjunc[0], out=Ztemp0);
-    DFF(in=Zjunc[1], out=Ztemp1);
-    DFF(in=Zjunc[2], out=Ztemp2);
+    DFF(in=Zjunc0, out=Ztemp0);
+    DFF(in=Zjunc1, out=Ztemp1);
+    DFF(in=Zjunc2, out=Ztemp2);
 
     Not(in=Xtemp1, out=notXtemp1);
     Not(in=Xtemp0, out=notXtemp0);
