@@ -66,16 +66,15 @@ CHIP Crossing {
     Not(in=state2, out=notstate2);
     Or(a=notPowerOn, b=notstate2, out=timerReset);
 
-    // 使用CounterDec来计数，输出4位计数结果
-    CounterDec(dec=state2, reset=timerReset, out=counterOut);
+    // 在调用CounterDec时直接拆分输出总线
+    CounterDec(dec=state2, reset=timerReset, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
     
     // 检测计数器是否为零（4位全为0）
-    // CounterDec的输出为4位：counterOut[0], counterOut[1], counterOut[2], counterOut[3]
     // 当所有位都为0时，计数器为零，timerDone=1
     
-    // 第一步：检查每一位是否为0（实际上需要检查是否有任何一位为1）
-    Or(a=counterOut[0], b=counterOut[1], out=anyBit01);
-    Or(a=counterOut[2], b=counterOut[3], out=anyBit23);
+    // 检查是否有任何一位为1
+    Or(a=count0, b=count1, out=anyBit01);
+    Or(a=count2, b=count3, out=anyBit23);
     Or(a=anyBit01, b=anyBit23, out=anyBitSet);
     
     // 如果任何一位被设置（为1），则计数器不为零，timerDone应为0
