@@ -1,4 +1,3 @@
-// 带行人过街功能的控制器
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
