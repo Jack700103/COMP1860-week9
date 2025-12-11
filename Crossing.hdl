@@ -52,12 +52,13 @@ CHIP Crossing {
 
     Or(a=state1, b=state2, out=Wait);
 
-    Mux16(a[0]=Xtemp0, a[1]=Xtemp1, a[2]=Xtemp2, a[3..15]=false,
-          b[2]=true, b[1]=false, b[0]=false, b[3..15]=false,
-          sel=state2, out=X);
-    Mux16(a[0]=Ztemp0, a[1]=Ztemp1, a[2]=Ztemp2, a[3..15]=false,
-          b[2]=true, b[1]=false, b[0]=false, b[3..15]=false,
-          sel=state2, out=Z);
+    Mux(a=Xtemp0, b=false, sel=state2, out=X[0]);
+    Mux(a=Xtemp1, b=false, sel=state2, out=X[1]);
+    Mux(a=Xtemp2, b=true,  sel=state2, out=X[2]);
+
+    Mux(a=Ztemp0, b=false, sel=state2, out=Z[0]);
+    Mux(a=Ztemp1, b=false, sel=state2, out=Z[1]);
+    Mux(a=Ztemp2, b=true,  sel=state2, out=Z[2]);
 
     Not(in=state2, out=notstate2);
     Or(a=notPowerOn, b=notstate2, out=timerReset);
