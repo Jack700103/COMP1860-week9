@@ -72,12 +72,12 @@ CHIP Crossing {
 
     Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, a=deca, b=decb, c=decc, d=decd, e=dece, f=decf, g=decg);
 
-    Mux(a=deca, b=false, sel=state2, out=C[0]);
-    Mux(a=decb, b=false, sel=state2, out=C[1]);
-    Mux(a=decc, b=false, sel=state2, out=C[2]);
-    Mux(a=decd, b=false, sel=state2, out=C[3]);
-    Mux(a=dece, b=false, sel=state2, out=C[4]);
-    Mux(a=decf, b=false, sel=state2, out=C[5]);
+    Mux(a=dece, b=false, sel=state2, out=C[0]);
+    Mux(a=decf, b=false, sel=state2, out=C[1]);
+    Mux(a=decb, b=false, sel=state2, out=C[2]);
+    Mux(a=decc, b=false, sel=state2, out=C[3]);
+    Mux(a=deca, b=false, sel=state2, out=C[4]);
+    Mux(a=decd, b=false, sel=state2, out=C[5]);
     Mux(a=decg, b=false, sel=state2, out=C[6]);
 
     And(a=state0, b=buttonFlag, out=condition0to1);
