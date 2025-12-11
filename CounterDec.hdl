@@ -1,0 +1,43 @@
+CHIP CounterDec {
+    IN dec, reset;
+    OUT out[4];
+    
+    PARTS:
+    DFF(in=next0, out=current0);
+    DFF(in=next1, out=current1);
+    DFF(in=next2, out=current2);
+    DFF(in=next3, out=current3);
+
+    Or(a=current0, b=false, out=out[0]);
+    Or(a=current1, b=false, out=out[1]);
+    Or(a=current2, b=false, out=out[2]);
+    Or(a=current3, b=false, out=out[3]);
+
+    Xor(a=current0, b=true, out=sum0);
+    And(a=current0, b=true, out=carry0);
+
+    Xor(a=current1, b=true, out=sum1withoutcarry);
+    Xor(a=sum1withoutcarry, b=carry0, out=sum1);
+    And(a=current1, b=true, out=and1);
+    And(a=sum1withoutcarry, b=carry0, out=and2);
+    Or(a=and1, b=and2, out=carry1);
+
+    Xor(a=current2, b=true, out=sum2withoutcarry);
+    Xor(a=sum2withoutcarry, b=carry1, out=sum2);
+    And(a=current2, b=true, out=and3);
+    And(a=sum2withoutcarry, b=carry1, out=and4);
+    Or(a=and3, b=and4, out=carry2);
+
+    Xor(a=current3, b=true, out=sum3withoutcarry);
+    Xor(a=sum3withoutcarry, b=carry2, out=sum3);
+
+    Mux(a=current0, b=sum0, sel=dec, out=decOrCurrent0);
+    Mux(a=current1, b=sum1, sel=dec, out=decOrCurrent1);
+    Mux(a=current2, b=sum2, sel=dec, out=decOrCurrent2);
+    Mux(a=current3, b=sum3, sel=dec, out=decOrCurrent3);
+
+    Mux(a=decOrCurrent0, b=true, sel=reset, out=next0);
+    Mux(a=decOrCurrent1, b=false, sel=reset, out=next1);
+    Mux(a=decOrCurrent2, b=false, sel=reset, out=next2);
+    Mux(a=decOrCurrent3, b=true, sel=reset, out=next3);
+}
