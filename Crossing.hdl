@@ -63,9 +63,9 @@ CHIP Crossing {
     Not(in=state2, out=notstate2);
     Or(a=notPowerOn, b=notstate2, out=timerReset);
 
-    DisplayCounter(dec=state2, reset=timerReset, zero=timerDone, 
-                   a=C[0], b=C[1], c=C[2], d=C[3], 
-                   e=C[4], f=C[5], g=C[6]);
+    CounterDec(dec=state2, reset=timerReset, zr=timerDone);
+
+    DisplayCounter(dec=state2, reset=timerReset, a=C[0], b=C[1], c=C[2], d=C[3], e=C[4], f=C[5], g=C[6]);
 
     And(a=state0, b=buttonFlag, out=condition0to1);
 
