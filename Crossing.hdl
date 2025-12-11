@@ -14,8 +14,11 @@ CHIP Crossing {
     And(a=nots0, b=nots1, out=state0);
     And(a=s0, b=nots1, out=state1);
     And(a=nots0, b=s1, out=state2);
-    
-    JunctionController(PowerOn=PowerOn, X=Xtemp, Z=Ztemp);
+
+    JunctionController(PowerOn=PowerOn, X=Xjunc, Z=Zjunc);
+
+    Register(in=Xjunc, load=true, out=Xtemp);
+    Register(in=Zjunc, load=true, out=Ztemp);
 
     Not(in=Xtemp[1], out=notXtemp1);
     Not(in=Xtemp[0], out=notXtemp0);
@@ -28,14 +31,17 @@ CHIP Crossing {
     And(a=Zredpart1, b=notZtemp0, out=ZisRed);
 
     And(a=XisRed, b=ZisRed, out=cycleComplete);
-    
+
     And(a=state0, b=Button, out=setButtonFlag);
     And(a=state2, b=timerDone, out=clearButtonFlag);
 
     Or(a=setButtonFlag, b=buttonFlag, out=buttonFlagbeforeclear);
-    And(a=buttonFlagbeforeclear, b=Not(clearButtonFlag), out=buttonFlagtemp);
 
-    Mux(a=buttonFlagtemp, b=false, sel=Not(PowerOn), out=nextbuttonFlag);
+    Not(in=clearButtonFlag, out=notclearButtonFlag);
+    And(a=buttonFlagbeforeclear, b=notclearButtonFlag, out=buttonFlagtemp);
+
+    Not(in=PowerOn, out=notPowerOn);
+    Mux(a=buttonFlagtemp, b=false, sel=notPowerOn, out=nextbuttonFlag);
 
     Or(a=buttonFlag, b=false, out=ButtonPressed);
 
@@ -44,7 +50,8 @@ CHIP Crossing {
     Mux16(a=Xtemp, b[2]=true, b[1]=false, b[0]=false, sel=state2, out=X);
     Mux16(a=Ztemp, b[2]=true, b[1]=false, b[0]=false, sel=state2, out=Z);
 
-    Or(a=Not(PowerOn), b=Not(state2), out=timerReset);
+    Not(in=state2, out=notstate2);
+    Or(a=notPowerOn, b=notstate2, out=timerReset);
 
     DisplayCounter(dec=state2, reset=timerReset, zero=timerDone, 
                    a=C[0], b=C[1], c=C[2], d=C[3], 
@@ -62,6 +69,6 @@ CHIP Crossing {
     And(a=state2, b=nottimerDone, out=staystate2);
     Or(a=tostate2, b=staystate2, out=nexts1temp);
 
-    Mux(a=nexts0temp, b=false, sel=Not(PowerOn), out=nexts0);
-    Mux(a=nexts1temp, b=false, sel=Not(PowerOn), out=nexts1);
+    Mux(a=nexts0temp, b=false, sel=notPowerOn, out=nexts0);
+    Mux(a=nexts1temp, b=false, sel=notPowerOn, out=nexts1);
 }
