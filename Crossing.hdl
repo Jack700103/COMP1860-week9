@@ -1,97 +1,82 @@
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
-    
+
     PARTS:
-    DFF(in=nextS2, out=S2);
-    DFF(in=nextS1, out=S1);
-    DFF(in=nextS0, out=S0);
+    DFF(in=nexts0, out=s0);
+    DFF(in=nexts1, out=s1);
 
-    DFF(in=nextButtonReg, out=buttonReg);
+    DFF(in=nextbuttonFlag, out=buttonFlag);
 
-    DFF(in=nextTimerActive, out=TimerActive);
+    Not(in=s0, out=nots0);
+    Not(in=s1, out=nots1);
+    And(a=nots0, b=nots1, out=state0);  
+    And(a=s0, b=nots1, out=state1);     
+    And(a=nots0, b=s1, out=state2);     
 
-    CounterDec(dec=decCounter, reset=resetCounter, out=timerOut);
+    JunctionController(PowerOn=PowerOn, X=Xjunc, Z=Zjunc);
 
-    Decoder(in=timerOut, a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
+    DFF(in=Xjunc[0], out=Xtemp0);
+    DFF(in=Xjunc[1], out=Xtemp1);
+    DFF(in=Xjunc[2], out=Xtemp2);
 
-    Not(in=S0, out=notS0);
-    Xor(a=S1, b=S0, out=xorS1S0);
-    And(a=S1, b=S0, out=andS1S0);
-    Xor(a=S2, b=andS1S0, out=xorS2);
+    DFF(in=Zjunc[0], out=Ztemp0);
+    DFF(in=Zjunc[1], out=Ztemp1);
+    DFF(in=Zjunc[2], out=Ztemp2);
 
-    And(a=S2, b=S1, out=andS2S1);
-    And(a=andS2S1, b=S0, out=zCycleComplete);
-    
-    Not(in=TimerActive, out=notTimerActive);
-    And(a=notTimerActive, b=Button, out=buttonPressedNow);
-    Or(a=buttonPressedNow, b=buttonReg, out=nextButtonRegTemp);
+    Not(in=Xtemp1, out=notXtemp1);
+    Not(in=Xtemp0, out=notXtemp0);
+    And(a=Xtemp2, b=notXtemp1, out=XisRed_part);
+    And(a=XisRed_part, b=notXtemp0, out=XisRed);
 
-    And(a=timerOut[3], b=false, out=andT3);
-    And(a=timerOut[2], b=false, out=andT2);
-    And(a=timerOut[1], b=false, out=andT1);
-    And(a=timerOut[0], b=false, out=andT0);
-    Or(a=andT3, b=andT2, out=or32);
-    Or(a=andT1, b=andT0, out=or10);
-    Or(a=or32, b=or10, out=timerIsZeroTemp);
-    Not(in=timerIsZeroTemp, out=timerIsZero);
+    Not(in=Ztemp1, out=notZtemp1);
+    Not(in=Ztemp0, out=notZtemp0);
+    And(a=Ztemp2, b=notZtemp1, out=ZisRed_part);
+    And(a=ZisRed_part, b=notZtemp0, out=ZisRed);
 
-    And(a=TimerActive, b=timerIsZero, out=clearButton);
-    Not(in=clearButton, out=notClearButton);
-    And(a=nextButtonRegTemp, b=notClearButton, out=nextButtonReg);
+    And(a=XisRed, b=ZisRed, out=cycleComplete);
 
-    And(a=zCycleComplete, b=buttonReg, out=enterTimer);
+    And(a=state0, b=Button, out=setButtonFlag);
+    And(a=state2, b=timerDone, out=clearButtonFlag);
 
-    And(a=TimerActive, b=timerIsZero, out=exitTimer);
-    Not(in=exitTimer, out=notExitTimer);
-    And(a=TimerActive, b=notExitTimer, out=stayInTimer);
+    Or(a=setButtonFlag, b=buttonFlag, out=buttonFlagbeforeclear);
 
-    Or(a=enterTimer, b=stayInTimer, out=nextTimerActiveTemp);
-    And(a=nextTimerActiveTemp, b=PowerOn, out=nextTimerActive);
+    Not(in=clearButtonFlag, out=notclearButtonFlag);
+    And(a=buttonFlagbeforeclear, b=notclearButtonFlag, out=buttonFlagtemp);
 
-    And(a=enterTimer, b=true, out=resetCounter);
+    Not(in=PowerOn, out=notPowerOn);
+    Mux(a=buttonFlagtemp, b=false, sel=notPowerOn, out=nextbuttonFlag);
 
-    And(a=TimerActive, b=timerIsZero, out=stopDecrement);
-    Not(in=stopDecrement, out=decCounter);
+    Or(a=buttonFlag, b=false, out=ButtonPressed);
 
-    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2Normal);
-    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1Normal);
-    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0Normal);
+    Or(a=state1, b=state2, out=Wait);
 
-    Mux(a=nextS2Normal, b=S2, sel=TimerActive, out=nextS2);
-    Mux(a=nextS1Normal, b=S1, sel=TimerActive, out=nextS1);
-    Mux(a=nextS0Normal, b=S0, sel=TimerActive, out=nextS0);
-    
-    Mux(a=false, b=true, sel=buttonReg, out=ButtonPressed);
+    Mux16(a[0]=Xtemp0, a[1]=Xtemp1, a[2]=Xtemp2, a[3..15]=false,
+          b[2]=true, b[1]=false, b[0]=false, b[3..15]=false,
+          sel=state2, out=X);
+    Mux16(a[0]=Ztemp0, a[1]=Ztemp1, a[2]=Ztemp2, a[3..15]=false,
+          b[2]=true, b[1]=false, b[0]=false, b[3..15]=false,
+          sel=state2, out=Z);
 
-    Not(in=TimerActive, out=Wait);
+    Not(in=state2, out=notstate2);
+    Or(a=notPowerOn, b=notstate2, out=timerReset);
 
-    Mux(a=S1, b=false, sel=S2, out=xstate1);
-    Mux(a=S0, b=false, sel=S2, out=xstate0);
-    Mux(a=false, b=S1, sel=S2, out=zstate1);
-    Mux(a=false, b=S0, sel=S2, out=zstate0);
+    DisplayCounter(dec=state2, reset=timerReset, zero=timerDone, 
+                   a=C[0], b=C[1], c=C[2], d=C[3], 
+                   e=C[4], f=C[5], g=C[6]);
 
-    Mux(a=xstate1, b=false, sel=TimerActive, out=xstate1Final);
-    Mux(a=xstate0, b=false, sel=TimerActive, out=xstate0Final);
+    And(a=state0, b=buttonFlag, out=condition0to1);
 
-    Mux(a=zstate1, b=false, sel=TimerActive, out=zstate1Final);
-    Mux(a=zstate0, b=false, sel=TimerActive, out=zstate0Final);
+    And(a=state0, b=condition0to1, out=tostate1);
+    Not(in=cycleComplete, out=notcycleComplete);
+    And(a=state1, b=notcycleComplete, out=staystate1);
+    Or(a=tostate1, b=staystate1, out=nexts0temp);
 
-    Not(in=xstate1Final, out=X[2]);
-    Or(a=xstate0Final, b=false, out=X[1]);
-    Not(in=xstate0Final, out=notXstate0);
-    And(a=xstate1Final, b=notXstate0, out=X[0]);
+    And(a=state1, b=cycleComplete, out=tostate2);
+    Not(in=timerDone, out=nottimerDone);
+    And(a=state2, b=nottimerDone, out=staystate2);
+    Or(a=tostate2, b=staystate2, out=nexts1temp);
 
-    Not(in=zstate1Final, out=Z[2]);
-    Or(a=zstate0Final, b=false, out=Z[1]);
-    Not(in=zstate0Final, out=notZstate0);
-    And(a=zstate1Final, b=notZstate0, out=Z[0]);
-
-    Mux(a=false, b=segA, sel=TimerActive, out=C[0]);
-    Mux(a=false, b=segB, sel=TimerActive, out=C[1]);
-    Mux(a=false, b=segC, sel=TimerActive, out=C[2]);
-    Mux(a=false, b=segD, sel=TimerActive, out=C[3]);
-    Mux(a=false, b=segE, sel=TimerActive, out=C[4]);
-    Mux(a=false, b=segF, sel=TimerActive, out=C[5]);
-    Mux(a=false, b=segG, sel=TimerActive, out=C[6]);
+    Mux(a=nexts0temp, b=false, sel=notPowerOn, out=nexts0);
+    Mux(a=nexts1temp, b=false, sel=notPowerOn, out=nexts1);
 }
