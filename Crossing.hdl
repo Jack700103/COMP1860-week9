@@ -76,16 +76,19 @@ CHIP Crossing {
     Or(a=anyBit01, b=anyBit23, out=anyBitSet);
     Not(in=anyBitSet, out=timerDone);
 
-    // 七段显示：只在state2时显示计数器值，其他状态显示0
+    // DisplayCounter产生七段显示信号
     DisplayCounter(dec=state2, reset=timerReset, a=dispa, b=dispb, c=dispc, d=dispd, e=dispe, f=dispf, g=dispg);
     
-    Mux(a=dispa, b=false, sel=state2, out=C[0]);
-    Mux(a=dispb, b=false, sel=state2, out=C[1]);
-    Mux(a=dispc, b=false, sel=state2, out=C[2]);
-    Mux(a=dispd, b=false, sel=state2, out=C[3]);
-    Mux(a=dispe, b=false, sel=state2, out=C[4]);
-    Mux(a=dispf, b=false, sel=state2, out=C[5]);
-    Mux(a=dispg, b=false, sel=state2, out=C[6]);
+    // 根据8.jpg的引脚顺序重新排列七段显示输出
+    // 8.jpg显示的顺序为：e, f, b, c, a, (d, g) - 假设完整顺序为：e, f, b, c, a, d, g
+    // 因此将DisplayCounter的输出按此顺序映射到C[0]-C[6]
+    Mux(a=dispe, b=false, sel=state2, out=C[0]);  // C[0] = e
+    Mux(a=dispf, b=false, sel=state2, out=C[1]);  // C[1] = f
+    Mux(a=dispb, b=false, sel=state2, out=C[2]);  // C[2] = b
+    Mux(a=dispc, b=false, sel=state2, out=C[3]);  // C[3] = c
+    Mux(a=dispa, b=false, sel=state2, out=C[4]);  // C[4] = a
+    Mux(a=dispd, b=false, sel=state2, out=C[5]);  // C[5] = d
+    Mux(a=dispg, b=false, sel=state2, out=C[6]);  // C[6] = g
 
     // 状态转换逻辑
     And(a=state0, b=buttonFlag, out=condition0to1);
@@ -99,7 +102,7 @@ CHIP Crossing {
     And(a=state2, b=nottimerDone, out=staystate2);
     Or(a=tostate2, b=staystate2, out=nexts1temp);
 
-    // 修改：复位时进入state1（s0=1, s1=0），符合测试输出
+    // 复位时进入state1（s0=1, s1=0）
     Mux(a=nexts0temp, b=true, sel=notPowerOn, out=nexts0);
     Mux(a=nexts1temp, b=false, sel=notPowerOn, out=nexts1);
 }
