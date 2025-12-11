@@ -1,108 +1,97 @@
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+
     PARTS:
-    // -------------------------- 1. 核心状态机（修正状态定义与转移逻辑）--------------------------
-    // 2位状态寄存器：s1s0 定义3个核心状态
-    // s1s0=00（state0）：正常交通循环，未触发过街
-    // s1s0=01（state1）：有过街请求，等待Z灯完成当前循环
-    // s1s0=10（state2）：过街中，X/Z保持RED，计时器倒计时
     DFF(in=nexts0, out=s0);
     DFF(in=nexts1, out=s1);
 
-    // 状态解码（修正逻辑运算顺序，确保状态互斥）
+    DFF(in=nextbuttonFlag, out=buttonFlag);
+
     Not(in=s0, out=nots0);
     Not(in=s1, out=nots1);
-    And(a=nots1, b=nots0, out=state0);  // 00：正常循环
-    And(a=nots1, b=s0,    out=state1);  // 01：等待Z循环结束
-    And(a=s1,    b=nots0, out=state2);  // 10：过街倒计时（修正原state2定义错误）
-    And(a=s1,    b=s0,    out=invalidState); // 11：无效状态（冗余判断，避免异常）
+    And(a=nots0, b=nots1, out=state0);  
+    And(a=s0, b=nots1, out=state1);     
+    And(a=nots0, b=s1, out=state2);     
 
-    // -------------------------- 2. 复用任务4的交通灯控制（修正接口与信号同步）--------------------------
-    // 调用JunctionController获取原始交通灯信号（Xjunc[3]、Zjunc[3]）
     JunctionController(PowerOn=PowerOn, X[0]=Xjunc0, X[1]=Xjunc1, X[2]=Xjunc2,
                        Z[0]=Zjunc0, Z[1]=Zjunc1, Z[2]=Zjunc2);
 
-    // 信号同步DFF（修正原代码无时钟同步问题，确保X/Z信号与状态机时钟对齐）
     DFF(in=Xjunc0, out=Xtemp0);
     DFF(in=Xjunc1, out=Xtemp1);
     DFF(in=Xjunc2, out=Xtemp2);
+
     DFF(in=Zjunc0, out=Ztemp0);
     DFF(in=Zjunc1, out=Ztemp1);
     DFF(in=Zjunc2, out=Ztemp2);
 
-    // -------------------------- 3. 过街触发条件判断（修正循环结束检测逻辑）--------------------------
-    // X/Z灯RED状态判断（匹配PDF中UK交通灯RED定义：X[2]=1, X[1]=0, X[0]=0）
-    And(a=Xtemp2, b=Not(in=Xtemp1), out=XredPart1);
-    And(a=XredPart1, b=Not(in=Xtemp0), out=XisRed); // X为RED：X[2]=1, X[1]=0, X[0]=0
-    And(a=Ztemp2, b=Not(in=Ztemp1), out=ZredPart1);
-    And(a=ZredPart1, b=Not(in=Ztemp0), out=ZisRed); // Z为RED：Z[2]=1, Z[1]=0, Z[0]=0
+    Not(in=Xtemp1, out=notXtemp1);
+    Not(in=Xtemp0, out=notXtemp0);
+    And(a=Xtemp2, b=notXtemp1, out=XisRedpart);
+    And(a=XisRedpart, b=notXtemp0, out=XisRed);
 
-    // 循环完成判断：仅当Z灯完成当前循环（回到RED）且X已为RED时，视为可触发过街（匹配PDF要求）
+    Not(in=Ztemp1, out=notZtemp1);
+    Not(in=Ztemp0, out=notZtemp0);
+    And(a=Ztemp2, b=notZtemp1, out=ZisRedpart);
+    And(a=ZisRedpart, b=notZtemp0, out=ZisRed);
+
     And(a=XisRed, b=ZisRed, out=cycleComplete);
 
-    // -------------------------- 4. 过街请求锁存（修正请求清除逻辑，避免误触发）--------------------------
-    DFF(in=nextbuttonFlag, out=buttonFlag);
-
-    // 请求设置：state0（正常循环）时按下Button，锁存请求
     And(a=state0, b=Button, out=setButtonFlag);
-    // 请求清除：state2（过街中）且计时器结束（timerDone），清除请求
     And(a=state2, b=timerDone, out=clearButtonFlag);
 
-    // 锁存逻辑：保持请求直到清除（修正原代码"或后与"逻辑错误）
-    Or(a=buttonFlag, b=setButtonFlag, out=buttonFlagHold);
-    And(a=buttonFlagHold, b=Not(in=clearButtonFlag), out=buttonFlagTemp);
+    Or(a=setButtonFlag, b=buttonFlag, out=buttonFlagbeforeclear);
 
-    // 电源关闭时强制清除请求（修正原Mux选择端逻辑）
+    Not(in=clearButtonFlag, out=notclearButtonFlag);
+    And(a=buttonFlagbeforeclear, b=notclearButtonFlag, out=buttonFlagtemp);
+
     Not(in=PowerOn, out=notPowerOn);
-    Mux(a=buttonFlagTemp, b=false, sel=notPowerOn, out=nextbuttonFlag);
+    Mux(a=buttonFlagtemp, b=false, sel=notPowerOn, out=nextbuttonFlag);
 
-    // ButtonPressed输出：当前周期有未处理的过街请求（匹配PDF定义）
-    Buf(in=buttonFlag, out=ButtonPressed);
+    Or(a=buttonFlag, b=false, out=ButtonPressed);
 
-    // -------------------------- 5. Wait信号输出（修正状态映射，匹配PDF定义）--------------------------
-    // Wait=1：交通灯处于循环中（state0/state1），行人不能过街；Wait=0：过街中（state2）
-    Or(a=state0, b=state1, out=Wait); // 修正原仅state1输出Wait的错误
+    Or(a=state1, b=false, out=Wait);
 
-    // -------------------------- 6. X/Z灯输出（修正过街时RED强制逻辑）--------------------------
-    // 过街中（state2）强制X/Z为RED：X[2]=1, X[1]=0, X[0]=0；Z同理
-    Mux(a=Xtemp0, b=false, sel=state2, out=X[0]); // GREEN熄灭
-    Mux(a=Xtemp1, b=false, sel=state2, out=X[1]); // AMBER熄灭
-    Mux(a=Xtemp2, b=true,  sel=state2, out=X[2]); // RED强制点亮
-    Mux(a=Ztemp0, b=false, sel=state2, out=Z[0]); // GREEN熄灭
-    Mux(a=Ztemp1, b=false, sel=state2, out=Z[1]); // AMBER熄灭
-    Mux(a=Ztemp2, b=true,  sel=state2, out=Z[2]); // RED强制点亮
+    Mux(a=Xtemp0, b=false, sel=state2, out=X[0]);
+    Mux(a=Xtemp1, b=false, sel=state2, out=X[1]);
+    Mux(a=Xtemp2, b=true,  sel=state2, out=X[2]);
 
-    // -------------------------- 7. 倒计时计时器（修正重置逻辑与结束判断）--------------------------
-    // 计时器控制：state2=1时递减（dec=1），否则重置（reset=1）
+    Mux(a=Ztemp0, b=false, sel=state2, out=Z[0]);
+    Mux(a=Ztemp1, b=false, sel=state2, out=Z[1]);
+    Mux(a=Ztemp2, b=true,  sel=state2, out=Z[2]);
+
     Not(in=state2, out=notstate2);
-    Or(a=notPowerOn, b=notstate2, out=timerReset); // 电源关/非过街时重置
+    Or(a=notPowerOn, b=notstate2, out=timerReset);
+
     CounterDec(dec=state2, reset=timerReset, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
 
-    // 计时器结束判断：count3-count0全为0（0000）时timerDone=1（修正原"或后非"逻辑错误）
-    And(a=Not(in=count3), b=Not(in=count2), out=countHigh0);
-    And(a=Not(in=count1), b=Not(in=count0), out=countLow0);
-    And(a=countHigh0, b=countLow0, out=timerDone);
+    Or(a=count0, b=count1, out=anyBit01);
+    Or(a=count2, b=count3, out=anyBit23);
+    Or(a=anyBit01, b=anyBit23, out=anyBitSet);
+    Not(in=anyBitSet, out=timerDone);
 
-    // -------------------------- 8. 7段数码管输出（修正与Decoder接口及显示逻辑）--------------------------
-    // 调用已验证的Decoder，将4位计数转换为7段信号（a-g对应C[0]-C[6]）
-    Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, 
-            a=C[0], b=C[1], c=C[2], d=C[3], e=C[4], f=C[5], g=C[6]);
-    // 修正原Mux逻辑：过街中（state2）直接显示计时器值，无需额外选择（Decoder已处理数字映射）
+    Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, a=deca, b=decb, c=decc, d=decd, e=dece, f=decf, g=decg);
 
-    // -------------------------- 9. 状态转移逻辑（修正条件判断，避免死锁）--------------------------
-    // nexts0（低位）转移：state0→state1（有请求）；state1→state1（未到循环结束）；state2→state0（计时结束）
-    And(a=state0, b=buttonFlag, out=state0To1);       // 00→01：有请求
-    And(a=state1, b=Not(in=cycleComplete), out=stayState1); // 01→01：未到循环结束
-    And(a=state2, b=timerDone, out=state2To0);        // 10→00：计时结束
-    Or(a=state0To1, b=stayState1, c=state2To0, out=nexts0);
+    Mux(a=dece, b=false, sel=state2, out=C[0]);
+    Mux(a=decf, b=false, sel=state2, out=C[1]);
+    Mux(a=decb, b=false, sel=state2, out=C[2]);
+    Mux(a=decc, b=false, sel=state2, out=C[3]);
+    Mux(a=deca, b=false, sel=state2, out=C[4]);
+    Mux(a=decd, b=false, sel=state2, out=C[5]);
+    Mux(a=decg, b=false, sel=state2, out=C[6]);
 
-    // nexts1（高位）转移：state1→state2（循环结束）；state2→state2（计时未结束）；其他→0
-    And(a=state1, b=cycleComplete, out=state1To2);    // 01→10：循环结束
-    And(a=state2, b=Not(in=timerDone), out=stayState2); //10→10：计时未结束
-    Or(a=state1To2, b=stayState2, out=nexts1);
+    And(a=state0, b=buttonFlag, out=condition0to1);
 
-    // 电源关闭时强制回到初始状态（00）
-    Mux(a=nexts0, b=false, sel=notPowerOn, out=nexts0);
-    Mux(a=nexts1, b=false, sel=notPowerOn, out=nexts1);
+    And(a=state0, b=condition0to1, out=tostate1);
+    Not(in=cycleComplete, out=notcycleComplete);
+    And(a=state1, b=notcycleComplete, out=staystate1);
+    Or(a=tostate1, b=staystate1, out=nexts0temp);
+
+    And(a=state1, b=cycleComplete, out=tostate2);
+    Not(in=timerDone, out=nottimerDone);
+    And(a=state2, b=nottimerDone, out=staystate2);
+    Or(a=tostate2, b=staystate2, out=nexts1temp);
+
+    Mux(a=nexts0temp, b=true, sel=notPowerOn, out=nexts0);
+    Mux(a=nexts1temp, b=false, sel=notPowerOn, out=nexts1);
 }
