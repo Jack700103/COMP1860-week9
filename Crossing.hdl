@@ -1,40 +1,59 @@
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+    PARTS:
+    DFF(in=nextS2, out=S2);
+    DFF(in=nextS1, out=S1);
+    DFF(in=nextS0, out=S0);
     
-    PARTS:   
-    Register(in=nextState, load=true, out=currentState[2]);
+    Not(in=S0, out=notS0);
+    And(a=S1, b=S0, out=andS1S0);          
+    And(a=S2, b=andS1S0, out=zCycleEnd);   
+    Xor(a=S1, b=S0, out=xorS1S0);          
+    Xor(a=S2, b=andS1S0, out=xorS2);       
     
-    DFF(in=nextButtonFlag, out=buttonFlag);
-    Or(a=Button, b=buttonFlag, out=nextButtonFlag);
+    And(a=PowerOn, b=notCrossing, out=canTransition);
+    Mux(a=S2, b=xorS2, sel=canTransition, out=nextS2);
+    Mux(a=S1, b=xorS1S0, sel=canTransition, out=nextS1);
+    Mux(a=S0, b=notS0, sel=canTransition, out=nextS0);
     
-    JunctionController(PowerOn=normalEnable, X=X_temp, Z=Z_temp);
+    Not(in=S2, out=xActive);               
+    Mux(a=S1, b=false, sel=xActive, out=xstate1);
+    Mux(a=S0, b=false, sel=xActive, out=xstate0);
     
-    DisplayCounter(dec=timerDec, reset=timerReset, 
-                   a=C[0], b=C[1], c=C[2], d=C[3],
-                   e=C[4], f=C[5], g=C[6]);
+    Not(in=xstate1, out=X[2]);             
+    Or(a=xstate0, b=false, out=X[1]);       
+    And(a=xstate1, b=Not(in=xstate0), out=X[0]); 
     
-    And(a=buttonFlag, b=state0, out=toState1);
+    Mux(a=S1, b=false, sel=S2, out=zstate1);
+    Mux(a=S0, b=false, sel=S2, out=zstate0);
     
-    And(a=cycleComplete, b=state1, out=toState2);
+    Not(in=zstate1, out=Z[2]);             
+    Or(a=zstate0, b=false, out=Z[1]);    
+    And(a=zstate1, b=Not(in=zstate0), out=Z[0]); 
     
-    And(a=timerDone, b=state2, out=toState0);
+    DFF(in=requestLatchNext, out=requestLatch);
+    Or(a=Button, b=requestLatch, out=requestHold);  
+    And(a=requestHold, b=notCrossingDone, out=requestLatchNext); 
     
-    ButtonPressed = buttonFlag;
+    And(a=zCycleEnd, b=requestLatch, out=startCrossing);
     
-    Or(a=state1, b=state2, out=Wait);
+    DFF(in=crossingNext, out=crossing);
+    Or(a=startCrossing, b=crossing, out=crossingNext); 
+    And(a=crossing, b=timerDone, out=crossingDone);   
+    Not(in=crossing, out=notCrossing);                
     
-    Mux16(a=X_temp, b[2]=true, b[1]=false, b[0]=false, 
-          sel=state2, out=X);
-    Mux16(a=Z_temp, b[2]=true, b[1]=false, b[0]=false, 
-          sel=state2, out=Z);
+    Buf(in=requestLatch, out=ButtonPressed);
+    Buf(in=notCrossing, out=Wait);
     
-    Mux(a=false, b=true, sel=state2, out=timerDec);
-    Not(in=state2, out=timerReset);
+    Mux(a=crossing, b=false, out=dec);      
+    Mux(a=crossingDone, b=startCrossing, out=resetTimer);
     
-    Not(in=currentState[0], out=not_s0);
-    Not(in=currentState[1], out=not_s1);
-    And(a=not_s0, b=not_s1, out=state0);
-    And(a=currentState[0], b=not_s1, out=state1);
-    And(a=not_s0, b=currentState[1], out=state2);
+    CounterDec(dec=dec, reset=resetTimer, out=counterOut[4]);
+    
+    Decoder(in=counterOut, a=C[0], b=C[1], c=C[2], d=C[3], e=C[4], f=C[5], g=C[6]);
+    
+    And(a=Not(in=counterOut[3]), b=Not(in=counterOut[2]), out=andTimer0);
+    And(a=Not(in=counterOut[1]), b=Not(in=counterOut[0]), out=andTimer1);
+    And(a=andTimer0, b=andTimer1, out=timerDone);
 }
