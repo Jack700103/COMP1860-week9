@@ -67,7 +67,7 @@ CHIP Crossing {
     Not(in=state2, out=notstate2);
     Or(a=notPowerOn, b=notstate2, out=timerReset);
 
-    // 使用CounterDec来计数，输出4位计数结果
+    // 在调用CounterDec时直接拆分输出总线
     CounterDec(dec=state2, reset=timerReset, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
     
     // 检测计数器是否为零（4位全为0）
@@ -79,11 +79,10 @@ CHIP Crossing {
     // 使用Decoder将计数器的值转换为七段显示信号
     Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, a=deca, b=decb, c=decc, d=decd, e=dece, f=decf, g=decg);
 
-    // 根据8.jpg图片的七段线连接信息和测试输出调整映射顺序
-    // 调整后的映射：C[0]=e, C[1]=b, C[2]=f, C[3]=c, C[4]=a, C[5]=d, C[6]=g
+    // 根据8.jpg图片的七段线连接顺序（e, f, b, c, a, d, g）进行映射
     Mux(a=dece, b=false, sel=state2, out=C[0]);  // C[0] = e
-    Mux(a=decb, b=false, sel=state2, out=C[1]);  // C[1] = b
-    Mux(a=decf, b=false, sel=state2, out=C[2]);  // C[2] = f
+    Mux(a=decf, b=false, sel=state2, out=C[1]);  // C[1] = f
+    Mux(a=decb, b=false, sel=state2, out=C[2]);  // C[2] = b
     Mux(a=decc, b=false, sel=state2, out=C[3]);  // C[3] = c
     Mux(a=deca, b=false, sel=state2, out=C[4]);  // C[4] = a
     Mux(a=decd, b=false, sel=state2, out=C[5]);  // C[5] = d
