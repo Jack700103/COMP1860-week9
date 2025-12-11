@@ -14,11 +14,9 @@ CHIP Crossing {
     And(a=s0, b=nots1, out=state1);     
     And(a=nots0, b=s1, out=state2);     
 
-    // 在JunctionController调用处拆分总线
     JunctionController(PowerOn=PowerOn, X[0]=Xjunc0, X[1]=Xjunc1, X[2]=Xjunc2,
                        Z[0]=Zjunc0, Z[1]=Zjunc1, Z[2]=Zjunc2);
- 
-    // 使用拆分后的单独线路连接DFF
+
     DFF(in=Xjunc0, out=Xtemp0);
     DFF(in=Xjunc1, out=Xtemp1);
     DFF(in=Xjunc2, out=Xtemp2);
@@ -52,10 +50,8 @@ CHIP Crossing {
 
     Or(a=buttonFlag, b=false, out=ButtonPressed);
 
-    // Wait信号只在state1时为1
     Or(a=state1, b=false, out=Wait);
 
-    // X和Z输出：state2时固定为100，否则为交通灯状态
     Mux(a=Xtemp0, b=false, sel=state2, out=X[0]);
     Mux(a=Xtemp1, b=false, sel=state2, out=X[1]);
     Mux(a=Xtemp2, b=true,  sel=state2, out=X[2]);
@@ -67,26 +63,22 @@ CHIP Crossing {
     Not(in=state2, out=notstate2);
     Or(a=notPowerOn, b=notstate2, out=timerReset);
 
-    // 在调用CounterDec时直接拆分输出总线
     CounterDec(dec=state2, reset=timerReset, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
-    
-    // 检测计数器是否为零（4位全为0）
+
     Or(a=count0, b=count1, out=anyBit01);
     Or(a=count2, b=count3, out=anyBit23);
     Or(a=anyBit01, b=anyBit23, out=anyBitSet);
     Not(in=anyBitSet, out=timerDone);
 
-    // 使用Decoder将计数器的值转换为七段显示信号
     Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, a=deca, b=decb, c=decc, d=decd, e=dece, f=decf, g=decg);
 
-    // 根据8.jpg图片的七段线连接顺序（e, f, b, c, a, d, g）进行映射
-    Mux(a=dece, b=false, sel=state2, out=C[0]);  // C[0] = e
-    Mux(a=decf, b=false, sel=state2, out=C[1]);  // C[1] = f
-    Mux(a=decb, b=false, sel=state2, out=C[2]);  // C[2] = b
-    Mux(a=decc, b=false, sel=state2, out=C[3]);  // C[3] = c
-    Mux(a=deca, b=false, sel=state2, out=C[4]);  // C[4] = a
-    Mux(a=decd, b=false, sel=state2, out=C[5]);  // C[5] = d
-    Mux(a=decg, b=false, sel=state2, out=C[6]);  // C[6] = g
+    Mux(a=deca, b=false, sel=state2, out=C[0]);
+    Mux(a=decb, b=false, sel=state2, out=C[1]);
+    Mux(a=decc, b=false, sel=state2, out=C[2]);
+    Mux(a=decd, b=false, sel=state2, out=C[3]);
+    Mux(a=dece, b=false, sel=state2, out=C[4]);
+    Mux(a=decf, b=false, sel=state2, out=C[5]);
+    Mux(a=decg, b=false, sel=state2, out=C[6]);
 
     And(a=state0, b=buttonFlag, out=condition0to1);
 
@@ -100,7 +92,6 @@ CHIP Crossing {
     And(a=state2, b=nottimerDone, out=staystate2);
     Or(a=tostate2, b=staystate2, out=nexts1temp);
 
-    // 复位时进入state1（s0=1, s1=0）
     Mux(a=nexts0temp, b=true, sel=notPowerOn, out=nexts0);
     Mux(a=nexts1temp, b=false, sel=notPowerOn, out=nexts1);
 }
