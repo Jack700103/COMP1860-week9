@@ -52,10 +52,10 @@ CHIP Crossing {
 
     Or(a=buttonFlag, b=false, out=ButtonPressed);
 
-    // 修改：Wait信号只在state1时为1，state2时应该为0
+    // Wait信号只在state1时为1
     Or(a=state1, b=false, out=Wait);
 
-    // 使用3个独立的Mux代替Mux16，以避免总线宽度不匹配
+    // X和Z输出：state2时固定为100，否则为交通灯状态
     Mux(a=Xtemp0, b=false, sel=state2, out=X[0]);
     Mux(a=Xtemp1, b=false, sel=state2, out=X[1]);
     Mux(a=Xtemp2, b=true,  sel=state2, out=X[2]);
@@ -67,25 +67,18 @@ CHIP Crossing {
     Not(in=state2, out=notstate2);
     Or(a=notPowerOn, b=notstate2, out=timerReset);
 
-    // 在调用CounterDec时直接拆分输出总线
+    // 计数器：在state2时递减，其他状态复位
     CounterDec(dec=state2, reset=timerReset, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
     
     // 检测计数器是否为零（4位全为0）
-    // 当所有位都为0时，计数器为零，timerDone=1
-    
-    // 检查是否有任何一位为1
     Or(a=count0, b=count1, out=anyBit01);
     Or(a=count2, b=count3, out=anyBit23);
     Or(a=anyBit01, b=anyBit23, out=anyBitSet);
-    
-    // 如果任何一位被设置（为1），则计数器不为零，timerDone应为0
-    // 所以需要取反：timerDone = NOT(anyBitSet)
     Not(in=anyBitSet, out=timerDone);
 
-    // DisplayCounter用于产生七段显示信号
+    // 七段显示：只在state2时显示计数器值，其他状态显示0
     DisplayCounter(dec=state2, reset=timerReset, a=dispa, b=dispb, c=dispc, d=dispd, e=dispe, f=dispf, g=dispg);
     
-    // 修改：只在state2时显示计数器，其他状态显示0
     Mux(a=dispa, b=false, sel=state2, out=C[0]);
     Mux(a=dispb, b=false, sel=state2, out=C[1]);
     Mux(a=dispc, b=false, sel=state2, out=C[2]);
@@ -94,8 +87,8 @@ CHIP Crossing {
     Mux(a=dispf, b=false, sel=state2, out=C[5]);
     Mux(a=dispg, b=false, sel=state2, out=C[6]);
 
+    // 状态转换逻辑
     And(a=state0, b=buttonFlag, out=condition0to1);
-
     And(a=state0, b=condition0to1, out=tostate1);
     Not(in=cycleComplete, out=notcycleComplete);
     And(a=state1, b=notcycleComplete, out=staystate1);
@@ -106,6 +99,7 @@ CHIP Crossing {
     And(a=state2, b=nottimerDone, out=staystate2);
     Or(a=tostate2, b=staystate2, out=nexts1temp);
 
-    Mux(a=nexts0temp, b=false, sel=notPowerOn, out=nexts0);
+    // 修改：复位时进入state1（s0=1, s1=0），符合测试输出
+    Mux(a=nexts0temp, b=true, sel=notPowerOn, out=nexts0);
     Mux(a=nexts1temp, b=false, sel=notPowerOn, out=nexts1);
 }
