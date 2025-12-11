@@ -1,36 +1,41 @@
+// 带行人过街功能的控制器
 CHIP Crossing {
     IN PowerOn, Button;
-    OUT ButtonPressed, Wait,
-          X[3], Z[3], C[7];
-    PARTS:
-    DFF(in=nextS2, out=S2);
-    DFF(in=nextS1, out=S1);
-    DFF(in=nextS0, out=S0);
+    OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     
-    Not(in=S0, out=notS0);
-    Xor(a=S1, b=S0, out=xorS1S0);
-    And(a=S1, b=S0, out=andS1S0);
-    Xor(a=S2, b=andS1S0, out=xorS2);
+    PARTS:   
+    Register(in=nextState, load=true, out=currentState[2]);
     
-    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2);
-    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1);
-    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0);
+    DFF(in=nextButtonFlag, out=buttonFlag);
+    Or(a=Button, b=buttonFlag, out=nextButtonFlag);
     
-    Mux(a=S1, b=false, sel=S2, out=xstate1);
-    Mux(a=S0, b=false, sel=S2, out=xstate0);
+    JunctionController(PowerOn=normalEnable, X=X_temp, Z=Z_temp);
     
-    Mux(a=false, b=S1, sel=S2, out=zstate1);
-    Mux(a=false, b=S0, sel=S2, out=zstate0);
+    DisplayCounter(dec=timerDec, reset=timerReset, 
+                   a=C[0], b=C[1], c=C[2], d=C[3],
+                   e=C[4], f=C[5], g=C[6]);
     
-    DFF(in=Button, out=prevButton);
-    Xor(a=Button, b=prevButton, out=ButtonPressed);
+    And(a=buttonFlag, b=state0, out=toState1);
     
-    And(a=Button, b=!PowerOn, out=Wait);
+    And(a=cycleComplete, b=state1, out=toState2);
     
-    Mux(a=[1,0,0], b=[X[2], X[1], X[0]], sel=Wait, out=X);
+    And(a=timerDone, b=state2, out=toState0);
     
-    Mux(a=[1,0,0], b=[Z[2], Z[1], Z[0]], sel=Wait, out=Z);
+    ButtonPressed = buttonFlag;
     
-    CounterDec(in=!Wait, load=9, up=false, out=timer);
-    Decoder(in=timer, out=C);
+    Or(a=state1, b=state2, out=Wait);
+    
+    Mux16(a=X_temp, b[2]=true, b[1]=false, b[0]=false, 
+          sel=state2, out=X);
+    Mux16(a=Z_temp, b[2]=true, b[1]=false, b[0]=false, 
+          sel=state2, out=Z);
+    
+    Mux(a=false, b=true, sel=state2, out=timerDec);
+    Not(in=state2, out=timerReset);
+    
+    Not(in=currentState[0], out=not_s0);
+    Not(in=currentState[1], out=not_s1);
+    And(a=not_s0, b=not_s1, out=state0);
+    And(a=currentState[0], b=not_s1, out=state1);
+    And(a=not_s0, b=currentState[1], out=state2);
 }
