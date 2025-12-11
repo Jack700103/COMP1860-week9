@@ -17,7 +17,6 @@ CHIP Crossing {
     JunctionController(PowerOn=PowerOn, X[0]=Xjunc0, X[1]=Xjunc1, X[2]=Xjunc2,
                        Z[0]=Zjunc0, Z[1]=Zjunc1, Z[2]=Zjunc2);
  
-    // 修改：使用拆分后的单独线路连接DFF
     DFF(in=Xjunc0, out=Xtemp0);
     DFF(in=Xjunc1, out=Xtemp1);
     DFF(in=Xjunc2, out=Xtemp2);
@@ -28,13 +27,13 @@ CHIP Crossing {
 
     Not(in=Xtemp1, out=notXtemp1);
     Not(in=Xtemp0, out=notXtemp0);
-    And(a=Xtemp2, b=notXtemp1, out=XisRed_part);
-    And(a=XisRed_part, b=notXtemp0, out=XisRed);
+    And(a=Xtemp2, b=notXtemp1, out=XisRedpart);
+    And(a=XisRedpart, b=notXtemp0, out=XisRed);
 
     Not(in=Ztemp1, out=notZtemp1);
     Not(in=Ztemp0, out=notZtemp0);
-    And(a=Ztemp2, b=notZtemp1, out=ZisRed_part);
-    And(a=ZisRed_part, b=notZtemp0, out=ZisRed);
+    And(a=Ztemp2, b=notZtemp1, out=ZisRedpart);
+    And(a=ZisRedpart, b=notZtemp0, out=ZisRed);
 
     And(a=XisRed, b=ZisRed, out=cycleComplete);
 
