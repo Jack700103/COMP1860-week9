@@ -14,9 +14,10 @@ CHIP Crossing {
     And(a=s0, b=nots1, out=state1);     
     And(a=nots0, b=s1, out=state2);     
 
-    JunctionController(PowerOn=PowerOn, X0=Xjunc0, X1=Xjunc1, X2=Xjunc2, 
-                       Z0=Zjunc0, Z1=Zjunc1, Z2=Zjunc2);
+    JunctionController(PowerOn=PowerOn, X[0]=Xjunc0, X[1]=Xjunc1, X[2]=Xjunc2,
+                       Z[0]=Zjunc0, Z[1]=Zjunc1, Z[2]=Zjunc2);
  
+    // 修改：使用拆分后的单独线路连接DFF
     DFF(in=Xjunc0, out=Xtemp0);
     DFF(in=Xjunc1, out=Xtemp1);
     DFF(in=Xjunc2, out=Xtemp2);
