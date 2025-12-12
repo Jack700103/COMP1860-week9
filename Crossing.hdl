@@ -7,167 +7,213 @@ CHIP Crossing {
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     PARTS:
 
-    // --- State Registers (5 bits) ---
-    // S4: Timer mode (1=countdown, 0=normal)
-    // S3: Current light (0=X cycle, 1=Z cycle)
-    // S2-S0: State within current cycle
-    DFF(in=nextS4, out=S4);
-    DFF(in=nextS3, out=S3);
+    // --- State Registers ---
+    // 使用3位状态机: 000-111表示8个状态
+    // 状态分配:
+    // 000: X红 (初始状态)
+    // 001: X红黄
+    // 010: X绿
+    // 011: X黄
+    // 100: Z红
+    // 101: Z红黄
+    // 110: Z绿
+    // 111: Z黄
+    
     DFF(in=nextS2, out=S2);
     DFF(in=nextS1, out=S1);
     DFF(in=nextS0, out=S0);
     
-    // --- Timer Register (4 bits) ---
+    // 创建反相信号
+    Not(in=S0, out=notS0);
+    Not(in=S1, out=notS1);
+    Not(in=S2, out=notS2);
+    
+    // --- Timer Register (4 bits for 9-0 countdown) ---
     DFF(in=nextTimer3, out=Timer3);
     DFF(in=nextTimer2, out=Timer2);
     DFF(in=nextTimer1, out=Timer1);
     DFF(in=nextTimer0, out=Timer0);
     
-    // --- Create inverted versions of state bits ---
-    Not(in=S0, out=notS0);
-    Not(in=S1, out=notS1);
-    Not(in=S2, out=notS2);
-    Not(in=S3, out=notS3);
-    Not(in=S4, out=notS4);
-    
-    // --- Create inverted versions of timer bits ---
+    // 创建反相信号
     Not(in=Timer0, out=notTimer0);
     Not(in=Timer1, out=notTimer1);
     Not(in=Timer2, out=notTimer2);
     Not(in=Timer3, out=notTimer3);
     
-    // --- Button Press Detection ---
+    // --- Button Press Logic ---
     DFF(in=Button, out=ButtonPrev);
     Not(in=ButtonPrev, out=notButtonPrev);
     And(a=Button, b=notButtonPrev, out=ButtonRisingEdge);
     
-    // ButtonPressed latch
+    // ButtonPressed寄存器
     DFF(in=nextBP, out=ButtonPressedReg);
-    Or(a=ButtonRisingEdge, b=ButtonPressedReg, out=BPOr);
-    And(a=BPOr, b=PowerOn, out=BPAnd);
-    And(a=BPAnd, b=notS4, out=nextBPInput);
-    Mux(a=false, b=nextBPInput, sel=PowerOn, out=nextBP);
     
-    // Wait signal: 1 when in normal mode, 0 when in timer mode
-    Not(in=S4, out=Wait);
-    
-    // --- Normal State Transition Logic ---
-    // Same as JunctionController but with timer mode control
-    
-    // State transition logic (from S2,S1,S0)
-    Xor(a=S1, b=S0, out=xorS1S0);
-    And(a=S1, b=S0, out=andS1S0);
-    Xor(a=S2, b=andS1S0, out=xorS2);
-    
-    // Normal next state
-    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2Normal);
-    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1Normal);
-    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0Normal);
-    
-    // S3 logic: toggle when cycle completes
-    // Check if at end of cycle (state 100 for X or 000 for Z)
-    And(a=S2, b=notS1, out=S2andNotS1);
-    And(a=S2andNotS1, b=notS0, out=endOfCycle);
-    
-    // Toggle S3 at end of cycle
-    Xor(a=S3, b=endOfCycle, out=nextS3Normal);
-    
-    // --- Timer Mode Control ---
-    // Enter timer mode when:
-    // 1. Button was pressed (ButtonPressedReg=1)
-    // 2. Both lights are RED (at the sync point)
-    // 3. Power is on
-    
-    // Check if at sync point (both lights should be RED)
-    And(a=S3, b=notS2, out=atZRed);
-    And(a=atZRed, b=notS1, out=atZRed2);
-    And(a=atZRed2, b=notS0, out=atSyncPoint);
-    
-    // Conditions to start timer
-    And(a=ButtonPressedReg, b=atSyncPoint, out=startTimerCond);
-    And(a=startTimerCond, b=PowerOn, out=startTimer);
-    
-    // Exit timer when count reaches 0
+    // 按钮按下时设置，计时器结束时清除
+    // 计时器结束条件：计时器值为0 (0000)
     And(a=notTimer3, b=notTimer2, out=andT32);
     And(a=notTimer1, b=notTimer0, out=andT10);
     And(a=andT32, b=andT10, out=timerZero);
     
-    And(a=S4, b=timerZero, out=exitTimer);
+    // 当按钮按下或已有按钮按下且计时器未结束时，保持按钮按下状态
+    Or(a=ButtonRisingEdge, b=ButtonPressedReg, out=bpOr);
+    And(a=bpOr, b=timerZero, out=bpAndNotZero);
+    Not(in=timerZero, out=notTimerZero);
+    And(a=ButtonPressedReg, b=notTimerZero, out=bpKeep);
+    Or(a=ButtonRisingEdge, b=bpKeep, out=nextBPtemp);
+    And(a=nextBPtemp, b=PowerOn, out=nextBP);
     
-    // Next S4 (timer mode)
-    Or(a=S4, b=startTimer, out=stayOrStart);
+    // 最终ButtonPressed输出
+    And(a=ButtonPressedReg, b=PowerOn, out=ButtonPressed);
+    
+    // --- Timer Mode Detection ---
+    // 当按钮按下且处于同步点（两个灯都红）时进入计时模式
+    // 同步点：当从Z黄回到X红时，状态111->000
+    
+    // 检查是否是状态111（Z黄）
+    And(a=S2, b=S1, out=andS21);
+    And(a=andS21, b=S0, out=state111);
+    
+    // 检查是否是状态000（X红）
+    And(a=notS2, b=notS1, out=andNotS21);
+    And(a=andNotS21, b=notS0, out=state000);
+    
+    // 计时器模式触发器
+    DFF(in=nextTimerMode, out=TimerMode);
+    
+    // 进入计时模式条件：按钮已按下且在状态111
+    And(a=ButtonPressedReg, b=state111, out=enterTimerCond);
+    And(a=enterTimerCond, b=PowerOn, out=enterTimer);
+    
+    // 退出计时模式条件：计时器为0
+    And(a=TimerMode, b=timerZero, out=exitTimer);
+    
+    // 下一计时器模式状态
+    Or(a=TimerMode, b=enterTimer, out=stayOrEnter);
     Not(in=exitTimer, out=notExit);
-    And(a=stayOrStart, b=notExit, out=nextS4);
+    And(a=stayOrEnter, b=notExit, out=nextTimerMode);
     
-    // Apply timer mode to state transitions
-    Mux(a=nextS2Normal, b=S2, sel=S4, out=nextS2);
-    Mux(a=nextS1Normal, b=S1, sel=S4, out=nextS1);
-    Mux(a=nextS0Normal, b=S0, sel=S4, out=nextS0);
-    Mux(a=nextS3Normal, b=S3, sel=S4, out=nextS3);
+    // Wait信号：计时模式时为0，否则为1
+    Not(in=TimerMode, out=Wait);
+    
+    // --- Normal State Transition Logic ---
+    // 正常状态转换（与JunctionController类似）
+    Not(in=S0, out=notS0temp);
+    Xor(a=S1, b=S0, out=xorS1S0);
+    And(a=S1, b=S0, out=andS1S0);
+    Xor(a=S2, b=andS1S0, out=xorS2);
+    
+    // 正常下一状态
+    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2Normal);
+    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1Normal);
+    Mux(a=false, b=notS0temp, sel=PowerOn, out=nextS0Normal);
+    
+    // 计时模式时保持状态不变，否则正常转换
+    Mux(a=nextS2Normal, b=S2, sel=TimerMode, out=nextS2);
+    Mux(a=nextS1Normal, b=S1, sel=TimerMode, out=nextS1);
+    Mux(a=nextS0Normal, b=S0, sel=TimerMode, out=nextS0);
     
     // --- Timer Counter Logic ---
-    // 4-bit decrementer (counts 9 down to 0)
+    // 4位递减计数器，从9(1001)到0(0000)
     
-    // Create 4-bit decrementer using full adders
-    // Subtract 1 by adding 1111 (two's complement of 1)
+    // 创建4位递减器（减1）
+    // 使用全加器加1111来实现减1
     FullAdder(a=Timer0, b=true, c=false, sum=dec0, carry=carry0);
     FullAdder(a=Timer1, b=true, c=carry0, sum=dec1, carry=carry1);
     FullAdder(a=Timer2, b=true, c=carry1, sum=dec2, carry=carry2);
     FullAdder(a=Timer3, b=true, c=carry2, sum=dec3, carry=carry3);
     
-    // Select next timer value
-    And(a=S4, b=notExit, out=decrement);
+    // 选择下一个计时器值
+    And(a=TimerMode, b=notTimerZero, out=decrement);
     
-    // For each timer bit, mux between current, decremented, and 9
-    // Timer3 (MSB)
+    // 进入计时模式时加载9，否则递减或保持
     Mux(a=Timer3, b=dec3, sel=decrement, out=nextTimer3Temp);
-    Mux(a=nextTimer3Temp, b=true, sel=startTimer, out=nextTimer3);
+    Mux(a=nextTimer3Temp, b=true, sel=enterTimer, out=nextTimer3);
     
-    // Timer2
     Mux(a=Timer2, b=dec2, sel=decrement, out=nextTimer2Temp);
-    Mux(a=nextTimer2Temp, b=false, sel=startTimer, out=nextTimer2);
+    Mux(a=nextTimer2Temp, b=false, sel=enterTimer, out=nextTimer2);
     
-    // Timer1
     Mux(a=Timer1, b=dec1, sel=decrement, out=nextTimer1Temp);
-    Mux(a=nextTimer1Temp, b=false, sel=startTimer, out=nextTimer1);
+    Mux(a=nextTimer1Temp, b=false, sel=enterTimer, out=nextTimer1);
     
-    // Timer0 (LSB)
     Mux(a=Timer0, b=dec0, sel=decrement, out=nextTimer0Temp);
-    Mux(a=nextTimer0Temp, b=true, sel=startTimer, out=nextTimer0);
+    Mux(a=nextTimer0Temp, b=true, sel=enterTimer, out=nextTimer0);
     
     // --- Traffic Light Output Logic ---
-    // Same as JunctionController, but override with RED in timer mode
+    // 根据状态输出交通灯信号
+    // X[2]=红, X[1]=黄, X[0]=绿
+    // Z[2]=红, Z[1]=黄, Z[0]=绿
     
-    // Original logic from JunctionController
-    Mux(a=S1, b=false, sel=S2, out=xstate1);
-    Mux(a=S0, b=false, sel=S2, out=xstate0);
+    // 正常模式下的X灯
+    // 状态000: X红 (100)
+    And(a=notS2, b=notS1, out=state00x);
+    And(a=state00x, b=notS0, out=state000real);
     
-    Mux(a=false, b=S1, sel=S2, out=zstate1);
-    Mux(a=false, b=S0, sel=S2, out=zstate0);
+    // 状态001: X红黄 (110)
+    And(a=notS2, b=notS1, out=state00x2);
+    And(a=state00x2, b=S0, out=state001);
     
-    // X light outputs
-    Not(in=xstate1, out=Xred);
-    Or(a=xstate0, b=false, out=Xamber);
-    Not(in=xstate0, out=notxstate0);
-    And(a=xstate1, b=notxstate0, out=Xgreen);
+    // 状态010: X绿 (001)
+    And(a=notS2, b=S1, out=state01x);
+    And(a=state01x, b=notS0, out=state010);
     
-    // Z light outputs
-    Not(in=zstate1, out=Zred);
-    Or(a=zstate0, b=false, out=Zamber);
-    Not(in=zstate0, out=notzstate0);
-    And(a=zstate1, b=notzstate0, out=Zgreen);
+    // 状态011: X黄 (010)
+    And(a=notS2, b=S1, out=state01x2);
+    And(a=state01x2, b=S0, out=state011);
     
-    // Apply timer mode override
-    Mux(a=Xred, b=true, sel=S4, out=X[2]);    // RED
-    Mux(a=Xamber, b=false, sel=S4, out=X[1]); // AMBER
-    Mux(a=Xgreen, b=false, sel=S4, out=X[0]); // GREEN
+    // 正常模式下的Z灯
+    // 状态100: Z红 (100)
+    And(a=S2, b=notS1, out=state10x);
+    And(a=state10x, b=notS0, out=state100);
     
-    Mux(a=Zred, b=true, sel=S4, out=Z[2]);    // RED
-    Mux(a=Zamber, b=false, sel=S4, out=Z[1]); // AMBER
-    Mux(a=Zgreen, b=false, sel=S4, out=Z[0]); // GREEN
+    // 状态101: Z红黄 (110)
+    And(a=S2, b=notS1, out=state10x2);
+    And(a=state10x2, b=S0, out=state101);
+    
+    // 状态110: Z绿 (001)
+    And(a=S2, b=S1, out=state11x);
+    And(a=state11x, b=notS0, out=state110);
+    
+    // 状态111: Z黄 (010)
+    And(a=S2, b=S1, out=state11x2);
+    And(a=state11x2, b=S0, out=state111real);
+    
+    // X灯输出
+    Mux(a=false, b=true, sel=state000real, out=Xrednormal);
+    Mux(a=false, b=true, sel=state001, out=Xrednormal2);
+    Or(a=Xrednormal, b=Xrednormal2, out=Xrednormalor);
+    Mux(a=false, b=false, sel=state010, out=Xrednormal3);
+    Or(a=Xrednormalor, b=Xrednormal3, out=Xrednormalfinal);
+    
+    Mux(a=false, b=true, sel=state001, out=Xambernormal);
+    Mux(a=false, b=true, sel=state011, out=Xambernormal2);
+    Or(a=Xambernormal, b=Xambernormal2, out=Xambernormalfinal);
+    
+    Mux(a=false, b=true, sel=state010, out=Xgreennormal);
+    
+    // Z灯输出
+    Mux(a=false, b=true, sel=state100, out=Zrednormal);
+    Mux(a=false, b=true, sel=state101, out=Zrednormal2);
+    Or(a=Zrednormal, b=Zrednormal2, out=Zrednormalor);
+    Mux(a=false, b=false, sel=state110, out=Zrednormal3);
+    Or(a=Zrednormalor, b=Zrednormal3, out=Zrednormalfinal);
+    
+    Mux(a=false, b=true, sel=state101, out=Zambernormal);
+    Mux(a=false, b=true, sel=state111real, out=Zambernormal2);
+    Or(a=Zambernormal, b=Zambernormal2, out=Zambernormalfinal);
+    
+    Mux(a=false, b=true, sel=state110, out=Zgreennormal);
+    
+    // 应用计时模式覆盖：计时模式下，两个灯都是红
+    Mux(a=Xrednormalfinal, b=true, sel=TimerMode, out=X[2]);
+    Mux(a=Xambernormalfinal, b=false, sel=TimerMode, out=X[1]);
+    Mux(a=Xgreennormal, b=false, sel=TimerMode, out=X[0]);
+    
+    Mux(a=Zrednormalfinal, b=true, sel=TimerMode, out=Z[2]);
+    Mux(a=Zambernormalfinal, b=false, sel=TimerMode, out=Z[1]);
+    Mux(a=Zgreennormal, b=false, sel=TimerMode, out=Z[0]);
     
     // --- 7-Segment Display Decoder ---
-    // Based on 8.jpg: segments are arranged as:
+    // 根据8.jpg: 段位排列为:
     //    e
     //  d   f
     //    b
@@ -175,128 +221,127 @@ CHIP Crossing {
     //    a
     // C[6..0] = a, b, c, d, e, f, g
     
-    // Segment a (C[6]): on for 0,2,3,5,6,7,8,9
-    // Logic: a = Timer3 + notTimer2*notTimer1*notTimer0 + notTimer2*Timer1*Timer0 + Timer2*notTimer1*Timer0 + Timer2*Timer1*notTimer0
-    And(a=notTimer2, b=notTimer1, out=anda1);
-    And(a=anda1, b=notTimer0, out=terma1);
+    // 简单的查找表方式实现0-9的7段显示
+    // 使用Mux16实现4位输入到7位输出的查找表
     
-    And(a=notTimer2, b=Timer1, out=anda2);
-    And(a=anda2, b=Timer0, out=terma2);
+    // 由于HDL中没有Mux16，我们使用多个Mux4way16来实现
+    // 首先将7位输出分成两组，但这样很复杂
     
-    And(a=Timer2, b=notTimer1, out=anda3);
-    And(a=anda3, b=Timer0, out=terma3);
+    // 简化：直接为每个数字实现逻辑
     
-    And(a=Timer2, b=Timer1, out=anda4);
-    And(a=anda4, b=notTimer0, out=terma4);
+    // 数字0: 1111110
+    And(a=notTimer3, b=notTimer2, out=digit0cond1);
+    And(a=digit0cond1, b=notTimer1, out=digit0cond2);
+    And(a=digit0cond2, b=notTimer0, out=digit0);
     
-    Or(a=terma1, b=terma2, out=ora1);
-    Or(a=terma3, b=terma4, out=ora2);
-    Or(a=ora1, b=ora2, out=ora3);
-    Or(a=Timer3, b=ora3, out=segAraw);
-    And(a=segAraw, b=S4, out=C[6]);
+    // 数字1: 0110000
+    And(a=notTimer3, b=notTimer2, out=digit1cond1);
+    And(a=digit1cond1, b=notTimer1, out=digit1cond2);
+    And(a=digit1cond2, b=Timer0, out=digit1);
     
-    // Segment b (C[5]): on for 0,1,2,3,4,7,8,9
-    // Logic: b = notTimer3*notTimer2 + notTimer3*notTimer1*notTimer0 + notTimer3*Timer1*Timer0 + Timer3
-    And(a=notTimer3, b=notTimer2, out=termb1);
+    // 数字2: 1101101
+    And(a=notTimer3, b=notTimer2, out=digit2cond1);
+    And(a=digit2cond1, b=Timer1, out=digit2cond2);
+    And(a=digit2cond2, b=notTimer0, out=digit2);
     
-    And(a=notTimer3, b=notTimer1, out=andb1);
-    And(a=andb1, b=notTimer0, out=termb2);
+    // 数字3: 1111001
+    And(a=notTimer3, b=notTimer2, out=digit3cond1);
+    And(a=digit3cond1, b=Timer1, out=digit3cond2);
+    And(a=digit3cond2, b=Timer0, out=digit3);
     
-    And(a=notTimer3, b=Timer1, out=andb2);
-    And(a=andb2, b=Timer0, out=termb3);
+    // 数字4: 0110011
+    And(a=notTimer3, b=Timer2, out=digit4cond1);
+    And(a=digit4cond1, b=notTimer1, out=digit4cond2);
+    And(a=digit4cond2, b=notTimer0, out=digit4);
     
-    Or(a=termb1, b=termb2, out=orb1);
-    Or(a=orb1, b=termb3, out=orb2);
-    Or(a=orb2, b=Timer3, out=segBraw);
-    And(a=segBraw, b=S4, out=C[5]);
+    // 数字5: 1011011
+    And(a=notTimer3, b=Timer2, out=digit5cond1);
+    And(a=digit5cond1, b=notTimer1, out=digit5cond2);
+    And(a=digit5cond2, b=Timer0, out=digit5);
     
-    // Segment c (C[4]): on for 0,1,3,4,5,6,7,8,9
-    // Logic: c = notTimer3*notTimer2 + notTimer3*notTimer1*Timer0 + notTimer3*Timer1*notTimer0 + Timer3
-    And(a=notTimer3, b=notTimer1, out=andc1);
-    And(a=andc1, b=Timer0, out=termc1);
+    // 数字6: 1011111
+    And(a=notTimer3, b=Timer2, out=digit6cond1);
+    And(a=digit6cond1, b=Timer1, out=digit6cond2);
+    And(a=digit6cond2, b=notTimer0, out=digit6);
     
-    And(a=notTimer3, b=Timer1, out=andc2);
-    And(a=andc2, b=notTimer0, out=termc2);
+    // 数字7: 1110000
+    And(a=notTimer3, b=Timer2, out=digit7cond1);
+    And(a=digit7cond1, b=Timer1, out=digit7cond2);
+    And(a=digit7cond2, b=Timer0, out=digit7);
     
-    Or(a=termb1, b=termc1, out=orc1);
-    Or(a=orc1, b=termc2, out=orc2);
-    Or(a=orc2, b=Timer3, out=segCraw);
-    And(a=segCraw, b=S4, out=C[4]);
+    // 数字8: 1111111
+    And(a=Timer3, b=notTimer2, out=digit8cond1);
+    And(a=digit8cond1, b=notTimer1, out=digit8cond2);
+    And(a=digit8cond2, b=notTimer0, out=digit8);
     
-    // Segment d (C[3]): on for 0,2,3,5,6,8,9
-    // Logic: d = notTimer3*notTimer2*notTimer1*notTimer0 + notTimer3*notTimer2*Timer1*Timer0 + 
-    //         notTimer3*Timer2*notTimer1*Timer0 + notTimer3*Timer2*Timer1*notTimer0 + Timer3*notTimer2*notTimer1*notTimer0
-    And(a=notTimer3, b=notTimer2, out=andd1);
-    And(a=andd1, b=notTimer1, out=andd2);
-    And(a=andd2, b=notTimer0, out=termd1);
+    // 数字9: 1111011
+    And(a=Timer3, b=notTimer2, out=digit9cond1);
+    And(a=digit9cond1, b=notTimer1, out=digit9cond2);
+    And(a=digit9cond2, b=Timer0, out=digit9);
     
-    And(a=andd1, b=Timer1, out=andd3);
-    And(a=andd3, b=Timer0, out=termd2);
+    // 段a (C[6]) 逻辑
+    Or(a=digit0, b=digit2, out=ora1);
+    Or(a=ora1, b=digit3, out=ora2);
+    Or(a=ora2, b=digit5, out=ora3);
+    Or(a=ora3, b=digit6, out=ora4);
+    Or(a=ora4, b=digit7, out=ora5);
+    Or(a=ora5, b=digit8, out=ora6);
+    Or(a=ora6, b=digit9, out=segAraw);
+    And(a=segAraw, b=TimerMode, out=C[6]);
     
-    And(a=notTimer3, b=Timer2, out=andd4);
-    And(a=andd4, b=notTimer1, out=andd5);
-    And(a=andd5, b=Timer0, out=termd3);
+    // 段b (C[5]) 逻辑
+    Or(a=digit0, b=digit1, out=orb1);
+    Or(a=orb1, b=digit2, out=orb2);
+    Or(a=orb2, b=digit3, out=orb3);
+    Or(a=orb3, b=digit4, out=orb4);
+    Or(a=orb4, b=digit7, out=orb5);
+    Or(a=orb5, b=digit8, out=orb6);
+    Or(a=orb6, b=digit9, out=segBraw);
+    And(a=segBraw, b=TimerMode, out=C[5]);
     
-    And(a=andd4, b=Timer1, out=andd6);
-    And(a=andd6, b=notTimer0, out=termd4);
+    // 段c (C[4]) 逻辑
+    Or(a=digit0, b=digit1, out=orc1);
+    Or(a=orc1, b=digit3, out=orc2);
+    Or(a=orc2, b=digit4, out=orc3);
+    Or(a=orc3, b=digit5, out=orc4);
+    Or(a=orc4, b=digit6, out=orc5);
+    Or(a=orc5, b=digit7, out=orc6);
+    Or(a=orc6, b=digit8, out=orc7);
+    Or(a=orc7, b=digit9, out=segCraw);
+    And(a=segCraw, b=TimerMode, out=C[4]);
     
-    And(a=Timer3, b=notTimer2, out=andd7);
-    And(a=andd7, b=notTimer1, out=andd8);
-    And(a=andd8, b=notTimer0, out=termd5);
+    // 段d (C[3]) 逻辑
+    Or(a=digit0, b=digit2, out=ord1);
+    Or(a=ord1, b=digit3, out=ord2);
+    Or(a=ord2, b=digit5, out=ord3);
+    Or(a=ord3, b=digit6, out=ord4);
+    Or(a=ord4, b=digit8, out=ord5);
+    Or(a=ord5, b=digit9, out=segDraw);
+    And(a=segDraw, b=TimerMode, out=C[3]);
     
-    Or(a=termd1, b=termd2, out=ord1);
-    Or(a=ord1, b=termd3, out=ord2);
-    Or(a=ord2, b=termd4, out=ord3);
-    Or(a=ord3, b=termd5, out=segDraw);
-    And(a=segDraw, b=S4, out=C[3]);
+    // 段e (C[2]) 逻辑
+    Or(a=digit0, b=digit2, out=ore1);
+    Or(a=ore1, b=digit6, out=ore2);
+    Or(a=ore2, b=digit8, out=segEraw);
+    And(a=segEraw, b=TimerMode, out=C[2]);
     
-    // Segment e (C[2]): on for 0,2,6,8
-    // Logic: e = notTimer3*notTimer2*notTimer1*notTimer0 + notTimer3*Timer2*notTimer1*notTimer0 + Timer3*notTimer2*notTimer1*notTimer0
-    And(a=andd2, b=notTimer0, out=terme1);
+    // 段f (C[1]) 逻辑
+    Or(a=digit0, b=digit4, out=orf1);
+    Or(a=orf1, b=digit5, out=orf2);
+    Or(a=orf2, b=digit6, out=orf3);
+    Or(a=orf3, b=digit8, out=orf4);
+    Or(a=orf4, b=digit9, out=segFraw);
+    And(a=segFraw, b=TimerMode, out=C[1]);
     
-    And(a=andd4, b=notTimer1, out=ande1);
-    And(a=ande1, b=notTimer0, out=terme2);
+    // 段g (C[0]) 逻辑
+    Or(a=digit2, b=digit3, out=org1);
+    Or(a=org1, b=digit4, out=org2);
+    Or(a=org2, b=digit5, out=org3);
+    Or(a=org3, b=digit6, out=org4);
+    Or(a=org4, b=digit8, out=org5);
+    Or(a=org5, b=digit9, out=segGraw);
+    And(a=segGraw, b=TimerMode, out=C[0]);
     
-    And(a=andd7, b=notTimer1, out=ande2);
-    And(a=ande2, b=notTimer0, out=terme3);
-    
-    Or(a=terme1, b=terme2, out=ore1);
-    Or(a=ore1, b=terme3, out=segEraw);
-    And(a=segEraw, b=S4, out=C[2]);
-    
-    // Segment f (C[1]): on for 0,4,5,6,8,9
-    // Logic: f = Timer3 + notTimer2*notTimer1*notTimer0 + Timer2*notTimer1*Timer0 + Timer2*Timer1*notTimer0
-    And(a=notTimer2, b=notTimer1, out=andf1);
-    And(a=andf1, b=notTimer0, out=termf1);
-    
-    And(a=Timer2, b=notTimer1, out=andf2);
-    And(a=andf2, b=Timer0, out=termf2);
-    
-    And(a=Timer2, b=Timer1, out=andf3);
-    And(a=andf3, b=notTimer0, out=termf3);
-    
-    Or(a=termf1, b=termf2, out=orf1);
-    Or(a=orf1, b=termf3, out=orf2);
-    Or(a=Timer3, b=orf2, out=segFraw);
-    And(a=segFraw, b=S4, out=C[1]);
-    
-    // Segment g (C[0]): on for 2,3,4,5,6,8,9
-    // Logic: g = Timer3 + notTimer2*Timer1*notTimer0 + Timer2*notTimer1*Timer0 + Timer2*Timer1*notTimer0
-    And(a=notTimer2, b=Timer1, out=andg1);
-    And(a=andg1, b=notTimer0, out=termg1);
-    
-    And(a=Timer2, b=notTimer1, out=andg2);
-    And(a=andg2, b=Timer0, out=termg2);
-    
-    And(a=Timer2, b=Timer1, out=andg3);
-    And(a=andg3, b=notTimer0, out=termg3);
-    
-    Or(a=termg1, b=termg2, out=org1);
-    Or(a=org1, b=termg3, out=org2);
-    Or(a=Timer3, b=org2, out=segGraw);
-    And(a=segGraw, b=S4, out=C[0]);
-    
-    // --- Final Outputs ---
-    // ButtonPressed output
-    And(a=ButtonPressedReg, b=PowerOn, out=ButtonPressed);
+    // 非计时模式下，7段数码管全灭
+    // 上面已经通过And(a=..., b=TimerMode)实现了
 }
