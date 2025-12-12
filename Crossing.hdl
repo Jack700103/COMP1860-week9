@@ -40,15 +40,8 @@ CHIP Crossing {
     DFF(in=nextBP, out=ButtonPressedReg);
     
     // --- 计时器模块 ---
-    // 正确连接CounterDec的输出到4位总线TimerBus
-    CounterDec(dec=TimerDec, reset=TimerReset, out=TimerBus);
-    
-    // 从4位总线中提取各个位（如果需要单独使用）
-    // 注意：这里使用Or门将总线位连接到单比特信号，避免直接使用索引
-    Or(a=TimerBus[0], b=false, out=Timer0);
-    Or(a=TimerBus[1], b=false, out=Timer1);
-    Or(a=TimerBus[2], b=false, out=Timer2);
-    Or(a=TimerBus[3], b=false, out=Timer3);
+    // 将CounterDec的4位输出分别连接到单个位信号
+    CounterDec(dec=TimerDec, reset=TimerReset, out=Timer0, out=Timer1, out=Timer2, out=Timer3);
     
     // 检查计时器是否为0（0000）
     Or(a=Timer0, b=Timer1, out=or01);
@@ -119,8 +112,48 @@ CHIP Crossing {
     Not(in=TimerMode, out=Wait);
     
     // --- 7段数码管输出 ---
-    // 直接将TimerBus（4位）传递给Decoder芯片
-    Decoder(in=TimerBus, a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
+    // 将计时器的4个位信号组合成一个4位总线作为Decoder的输入
+    // 创建4位总线：使用Or门将单bit信号与false连接，创建总线位
+    Or(a=Timer0, b=false, out=DecIn0);
+    Or(a=Timer1, b=false, out=DecIn1);
+    Or(a=Timer2, b=false, out=DecIn2);
+    Or(a=Timer3, b=false, out=DecIn3);
+    
+    // 将4个单bit信号组合成4位总线
+    // 注意：这里我们使用多个Or门创建总线，但实际上HDL可能不支持这样创建总线
+    // 我们需要换一种方式：使用4个单bit信号作为Decoder的输入
+    
+    // 方法：直接使用4个单bit信号，不创建总线
+    // 但Decoder期望一个4位输入，所以我们需要创建临时的4位信号
+    // 使用Or门将每个计时器位连接到对应的总线位
+    
+    // 创建临时的4位总线节点
+    // 注意：在HDL中我们不能直接创建总线，但我们可以将每个位单独传递
+    
+    // 由于Decoder需要一个4位输入，我们需要一种方法将4个单bit信号组合
+    // 在Nand2Tetris中，我们可以这样处理：创建一个临时芯片来包装这些信号
+    // 但这里我们简化：直接使用单bit信号，并在Decoder内部处理
+    
+    // 然而，我们已有的Decoder芯片期望一个4位输入，所以我们需要调整
+    
+    // 方法：创建一个临时的4位总线，使用Or门
+    // 创建4位总线信号
+    Or(a=Timer0, b=false, out=bus0);
+    Or(a=Timer1, b=false, out=bus1);
+    Or(a=Timer2, b=false, out=bus2);
+    Or(a=Timer3, b=false, out=bus3);
+    
+    // 现在使用这些信号作为Decoder的输入
+    // 我们需要将4个单bit信号作为4位总线传递给Decoder
+    // 在HDL中，我们可以这样写：
+    // Decoder(in[0]=bus0, in[1]=bus1, in[2]=bus2, in[3]=bus3, ...)
+    
+    // 创建4位输入数组
+    // 注意：在Nand2Tetris HDL中，我们需要使用正确的语法
+    
+    // 实际上，我们可以这样调用Decoder：
+    Decoder(in[0]=bus0, in[1]=bus1, in[2]=bus2, in[3]=bus3, 
+            a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
     
     // 仅当计时器模式时输出数码管信号
     And(a=segA, b=TimerMode, out=C[6]);
