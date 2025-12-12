@@ -1,3 +1,7 @@
+// ================================================
+// Crossing Controller with Pedestrian Timer
+// ================================================
+
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
@@ -19,6 +23,19 @@ CHIP Crossing {
     DFF(in=nextTimer1, out=Timer1);
     DFF(in=nextTimer0, out=Timer0);
     
+    // --- Create inverted versions of state bits ---
+    Not(in=S0, out=notS0);
+    Not(in=S1, out=notS1);
+    Not(in=S2, out=notS2);
+    Not(in=S3, out=notS3);
+    Not(in=S4, out=notS4);
+    
+    // --- Create inverted versions of timer bits ---
+    Not(in=Timer0, out=notTimer0);
+    Not(in=Timer1, out=notTimer1);
+    Not(in=Timer2, out=notTimer2);
+    Not(in=Timer3, out=notTimer3);
+    
     // --- Button Press Detection ---
     DFF(in=Button, out=ButtonPrev);
     Not(in=ButtonPrev, out=notButtonPrev);
@@ -28,7 +45,6 @@ CHIP Crossing {
     DFF(in=nextBP, out=ButtonPressedReg);
     Or(a=ButtonRisingEdge, b=ButtonPressedReg, out=BPOr);
     And(a=BPOr, b=PowerOn, out=BPAnd);
-    Not(in=S4, out=notS4);
     And(a=BPAnd, b=notS4, out=nextBPInput);
     Mux(a=false, b=nextBPInput, sel=PowerOn, out=nextBP);
     
@@ -39,7 +55,6 @@ CHIP Crossing {
     // Same as JunctionController but with timer mode control
     
     // State transition logic (from S2,S1,S0)
-    Not(in=S0, out=notS0);
     Xor(a=S1, b=S0, out=xorS1S0);
     And(a=S1, b=S0, out=andS1S0);
     Xor(a=S2, b=andS1S0, out=xorS2);
@@ -64,9 +79,6 @@ CHIP Crossing {
     // 3. Power is on
     
     // Check if at sync point (both lights should be RED)
-    // This occurs when S3=0 and S2=0 (X is RED) OR
-    // Actually, we need to check specific state
-    // After Z completes, we're at state: S3=1, S2=0, S1=0, S0=0
     And(a=S3, b=notS2, out=atZRed);
     And(a=atZRed, b=notS1, out=atZRed2);
     And(a=atZRed2, b=notS0, out=atSyncPoint);
@@ -76,12 +88,8 @@ CHIP Crossing {
     And(a=startTimerCond, b=PowerOn, out=startTimer);
     
     // Exit timer when count reaches 0
-    Not(in=Timer0, out=notT0);
-    Not(in=Timer1, out=notT1);
-    Not(in=Timer2, out=notT2);
-    Not(in=Timer3, out=notT3);
-    And(a=notT3, b=notT2, out=andT32);
-    And(a=notT1, b=notT0, out=andT10);
+    And(a=notTimer3, b=notTimer2, out=andT32);
+    And(a=notTimer1, b=notTimer0, out=andT10);
     And(a=andT32, b=andT10, out=timerZero);
     
     And(a=S4, b=timerZero, out=exitTimer);
@@ -108,10 +116,6 @@ CHIP Crossing {
     FullAdder(a=Timer3, b=true, c=carry2, sum=dec3, carry=carry3);
     
     // Select next timer value
-    // Priority: 1. Load 9 (1001) when starting timer
-    //           2. Decrement when in timer mode and not zero
-    //           3. Keep current value otherwise
-    
     And(a=S4, b=notExit, out=decrement);
     
     // For each timer bit, mux between current, decremented, and 9
@@ -171,136 +175,126 @@ CHIP Crossing {
     //    a
     // C[6..0] = a, b, c, d, e, f, g
     
-    // Truth table for 7-seg display (common cathode, 1=on, 0=off)
-    // Digit: segments abcdefg
-    // 0: 1111110
-    // 1: 0110000
-    // 2: 1101101
-    // 3: 1111001
-    // 4: 0110011
-    // 5: 1011011
-    // 6: 1011111
-    // 7: 1110000
-    // 8: 1111111
-    // 9: 1111011
-    
     // Segment a (C[6]): on for 0,2,3,5,6,7,8,9
-    // Logic: a = T3 + T2'T1'T0' + T2'T1T0 + T2T1'T0 + T2T1T0'
-    Or(a=T3, b=notT2, out=or1);
-    And(a=or1, b=notT1, out=and1);
-    And(a=and1, b=notT0, out=term1);
+    // Logic: a = Timer3 + notTimer2*notTimer1*notTimer0 + notTimer2*Timer1*Timer0 + Timer2*notTimer1*Timer0 + Timer2*Timer1*notTimer0
+    And(a=notTimer2, b=notTimer1, out=anda1);
+    And(a=anda1, b=notTimer0, out=terma1);
     
-    And(a=notT2, b=T1, out=and2);
-    And(a=and2, b=T0, out=term2);
+    And(a=notTimer2, b=Timer1, out=anda2);
+    And(a=anda2, b=Timer0, out=terma2);
     
-    And(a=T2, b=notT1, out=and3);
-    And(a=and3, b=T0, out=term3);
+    And(a=Timer2, b=notTimer1, out=anda3);
+    And(a=anda3, b=Timer0, out=terma3);
     
-    And(a=T2, b=T1, out=and4);
-    And(a=and4, b=notT0, out=term4);
+    And(a=Timer2, b=Timer1, out=anda4);
+    And(a=anda4, b=notTimer0, out=terma4);
     
-    Or(a=term1, b=term2, out=or2);
-    Or(a=term3, b=term4, out=or3);
-    Or(a=or2, b=or3, out=or4);
-    Or(a=T3, b=or4, out=segA);
-    And(a=segA, b=S4, out=C[6]);
+    Or(a=terma1, b=terma2, out=ora1);
+    Or(a=terma3, b=terma4, out=ora2);
+    Or(a=ora1, b=ora2, out=ora3);
+    Or(a=Timer3, b=ora3, out=segAraw);
+    And(a=segAraw, b=S4, out=C[6]);
     
     // Segment b (C[5]): on for 0,1,2,3,4,7,8,9
-    // Logic: b = T3'T2' + T3'T1'T0' + T3'T1T0 + T3
-    And(a=notT3, b=notT2, out=term5);
-    And(a=notT3, b=notT1, out=and5);
-    And(a=and5, b=notT0, out=term6);
-    And(a=notT3, b=T1, out=and6);
-    And(a=and6, b=T0, out=term7);
+    // Logic: b = notTimer3*notTimer2 + notTimer3*notTimer1*notTimer0 + notTimer3*Timer1*Timer0 + Timer3
+    And(a=notTimer3, b=notTimer2, out=termb1);
     
-    Or(a=term5, b=term6, out=or5);
-    Or(a=or5, b=term7, out=or6);
-    Or(a=or6, b=T3, out=segB);
-    And(a=segB, b=S4, out=C[5]);
+    And(a=notTimer3, b=notTimer1, out=andb1);
+    And(a=andb1, b=notTimer0, out=termb2);
+    
+    And(a=notTimer3, b=Timer1, out=andb2);
+    And(a=andb2, b=Timer0, out=termb3);
+    
+    Or(a=termb1, b=termb2, out=orb1);
+    Or(a=orb1, b=termb3, out=orb2);
+    Or(a=orb2, b=Timer3, out=segBraw);
+    And(a=segBraw, b=S4, out=C[5]);
     
     // Segment c (C[4]): on for 0,1,3,4,5,6,7,8,9
-    // Logic: c = T3'T2' + T3'T1'T0 + T3'T1T0' + T3
-    And(a=notT3, b=notT1, out=and7);
-    And(a=and7, b=T0, out=term8);
-    And(a=notT3, b=T1, out=and8);
-    And(a=and8, b=notT0, out=term9);
+    // Logic: c = notTimer3*notTimer2 + notTimer3*notTimer1*Timer0 + notTimer3*Timer1*notTimer0 + Timer3
+    And(a=notTimer3, b=notTimer1, out=andc1);
+    And(a=andc1, b=Timer0, out=termc1);
     
-    Or(a=term5, b=term8, out=or7);
-    Or(a=or7, b=term9, out=or8);
-    Or(a=or8, b=T3, out=segC);
-    And(a=segC, b=S4, out=C[4]);
+    And(a=notTimer3, b=Timer1, out=andc2);
+    And(a=andc2, b=notTimer0, out=termc2);
+    
+    Or(a=termb1, b=termc1, out=orc1);
+    Or(a=orc1, b=termc2, out=orc2);
+    Or(a=orc2, b=Timer3, out=segCraw);
+    And(a=segCraw, b=S4, out=C[4]);
     
     // Segment d (C[3]): on for 0,2,3,5,6,8,9
-    // Logic: d = T3'T2'T1'T0' + T3'T2'T1T0 + T3'T2T1'T0 + T3'T2T1T0' + T3T2'T1'T0'
-    And(a=notT3, b=notT2, out=and9);
-    And(a=and9, b=notT1, out=and10);
-    And(a=and10, b=notT0, out=term10);
+    // Logic: d = notTimer3*notTimer2*notTimer1*notTimer0 + notTimer3*notTimer2*Timer1*Timer0 + 
+    //         notTimer3*Timer2*notTimer1*Timer0 + notTimer3*Timer2*Timer1*notTimer0 + Timer3*notTimer2*notTimer1*notTimer0
+    And(a=notTimer3, b=notTimer2, out=andd1);
+    And(a=andd1, b=notTimer1, out=andd2);
+    And(a=andd2, b=notTimer0, out=termd1);
     
-    And(a=and9, b=T1, out=and11);
-    And(a=and11, b=T0, out=term11);
+    And(a=andd1, b=Timer1, out=andd3);
+    And(a=andd3, b=Timer0, out=termd2);
     
-    And(a=notT3, b=T2, out=and12);
-    And(a=and12, b=notT1, out=and13);
-    And(a=and13, b=T0, out=term12);
+    And(a=notTimer3, b=Timer2, out=andd4);
+    And(a=andd4, b=notTimer1, out=andd5);
+    And(a=andd5, b=Timer0, out=termd3);
     
-    And(a=and12, b=T1, out=and14);
-    And(a=and14, b=notT0, out=term13);
+    And(a=andd4, b=Timer1, out=andd6);
+    And(a=andd6, b=notTimer0, out=termd4);
     
-    And(a=T3, b=notT2, out=and15);
-    And(a=and15, b=notT1, out=and16);
-    And(a=and16, b=notT0, out=term14);
+    And(a=Timer3, b=notTimer2, out=andd7);
+    And(a=andd7, b=notTimer1, out=andd8);
+    And(a=andd8, b=notTimer0, out=termd5);
     
-    Or(a=term10, b=term11, out=or9);
-    Or(a=or9, b=term12, out=or10);
-    Or(a=or10, b=term13, out=or11);
-    Or(a=or11, b=term14, out=segD);
-    And(a=segD, b=S4, out=C[3]);
+    Or(a=termd1, b=termd2, out=ord1);
+    Or(a=ord1, b=termd3, out=ord2);
+    Or(a=ord2, b=termd4, out=ord3);
+    Or(a=ord3, b=termd5, out=segDraw);
+    And(a=segDraw, b=S4, out=C[3]);
     
     // Segment e (C[2]): on for 0,2,6,8
-    // Logic: e = T3'T2'T1'T0' + T3'T2T1'T0' + T3T2'T1'T0'
-    And(a=and10, b=notT0, out=term15);
+    // Logic: e = notTimer3*notTimer2*notTimer1*notTimer0 + notTimer3*Timer2*notTimer1*notTimer0 + Timer3*notTimer2*notTimer1*notTimer0
+    And(a=andd2, b=notTimer0, out=terme1);
     
-    And(a=and12, b=notT1, out=and17);
-    And(a=and17, b=notT0, out=term16);
+    And(a=andd4, b=notTimer1, out=ande1);
+    And(a=ande1, b=notTimer0, out=terme2);
     
-    And(a=and15, b=notT1, out=and18);
-    And(a=and18, b=notT0, out=term17);
+    And(a=andd7, b=notTimer1, out=ande2);
+    And(a=ande2, b=notTimer0, out=terme3);
     
-    Or(a=term15, b=term16, out=or12);
-    Or(a=or12, b=term17, out=segE);
-    And(a=segE, b=S4, out=C[2]);
+    Or(a=terme1, b=terme2, out=ore1);
+    Or(a=ore1, b=terme3, out=segEraw);
+    And(a=segEraw, b=S4, out=C[2]);
     
     // Segment f (C[1]): on for 0,4,5,6,8,9
-    // Logic: f = T3 + T2'T1'T0' + T2T1'T0 + T2T1T0'
-    And(a=notT2, b=notT1, out=and19);
-    And(a=and19, b=notT0, out=term18);
+    // Logic: f = Timer3 + notTimer2*notTimer1*notTimer0 + Timer2*notTimer1*Timer0 + Timer2*Timer1*notTimer0
+    And(a=notTimer2, b=notTimer1, out=andf1);
+    And(a=andf1, b=notTimer0, out=termf1);
     
-    And(a=T2, b=notT1, out=and20);
-    And(a=and20, b=T0, out=term19);
+    And(a=Timer2, b=notTimer1, out=andf2);
+    And(a=andf2, b=Timer0, out=termf2);
     
-    And(a=T2, b=T1, out=and21);
-    And(a=and21, b=notT0, out=term20);
+    And(a=Timer2, b=Timer1, out=andf3);
+    And(a=andf3, b=notTimer0, out=termf3);
     
-    Or(a=term18, b=term19, out=or13);
-    Or(a=or13, b=term20, out=or14);
-    Or(a=T3, b=or14, out=segF);
-    And(a=segF, b=S4, out=C[1]);
+    Or(a=termf1, b=termf2, out=orf1);
+    Or(a=orf1, b=termf3, out=orf2);
+    Or(a=Timer3, b=orf2, out=segFraw);
+    And(a=segFraw, b=S4, out=C[1]);
     
     // Segment g (C[0]): on for 2,3,4,5,6,8,9
-    // Logic: g = T3 + T2'T1T0' + T2T1'T0 + T2T1T0'
-    And(a=notT2, b=T1, out=and22);
-    And(a=and22, b=notT0, out=term21);
+    // Logic: g = Timer3 + notTimer2*Timer1*notTimer0 + Timer2*notTimer1*Timer0 + Timer2*Timer1*notTimer0
+    And(a=notTimer2, b=Timer1, out=andg1);
+    And(a=andg1, b=notTimer0, out=termg1);
     
-    And(a=T2, b=notT1, out=and23);
-    And(a=and23, b=T0, out=term22);
+    And(a=Timer2, b=notTimer1, out=andg2);
+    And(a=andg2, b=Timer0, out=termg2);
     
-    And(a=T2, b=T1, out=and24);
-    And(a=and24, b=notT0, out=term23);
+    And(a=Timer2, b=Timer1, out=andg3);
+    And(a=andg3, b=notTimer0, out=termg3);
     
-    Or(a=term21, b=term22, out=or15);
-    Or(a=or15, b=term23, out=or16);
-    Or(a=T3, b=or16, out=segG);
-    And(a=segG, b=S4, out=C[0]);
+    Or(a=termg1, b=termg2, out=org1);
+    Or(a=org1, b=termg3, out=org2);
+    Or(a=Timer3, b=org2, out=segGraw);
+    And(a=segGraw, b=S4, out=C[0]);
     
     // --- Final Outputs ---
     // ButtonPressed output
