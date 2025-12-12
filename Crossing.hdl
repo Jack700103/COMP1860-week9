@@ -1,120 +1,155 @@
 CHIP Crossing {
-    IN PowerOn, Button;
+    IN  PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
 
     PARTS:
-    //========================================================
-    // 1. 状态寄存器：是否有按键请求 & 是否处于行人过街阶段
-    //========================================================
-    DFF(in=nextFlag,   out=buttonFlag);   // 本轮是否有人按过按钮
-    DFF(in=nextCross,  out=crossing);     // 是否正在给行人过街（计时阶段）
+    //============================
+    // 状态寄存器：s1 s0
+    // 00 : 无请求，正常运行
+    // 01 : 已按键，等待两方向红灯
+    // 10 : 行人倒计时状态
+    //============================
+    DFF(in=nextS0, out=s0);
+    DFF(in=nextS1, out=s1);
 
-    //========================================================
-    // 2. 十字路口正常红绿灯控制（题目第4题的控制器）
-    //========================================================
+    // 状态译码
+    Not(in=s0, out=notS0);
+    Not(in=s1, out=notS1);
+    And(a=notS1, b=notS0, out=stateIdle);     // 00
+    And(a=notS1, b=s0,    out=stateWait);     // 01
+    And(a=s1,    b=notS0, out=stateCount);    // 10
+
+    //============================
+    // 调用十字路口主控制器
+    //============================
     JunctionController(
-        PowerOn = PowerOn,
-        X[0] = Xj0, X[1] = Xj1, X[2] = Xj2,
-        Z[0] = Zj0, Z[1] = Zj1, Z[2] = Zj2
+        PowerOn=PowerOn,
+        X[0]=xj0, X[1]=xj1, X[2]=xj2,
+        Z[0]=zj0, Z[1]=zj1, Z[2]=zj2
     );
 
-    //========================================================
-    // 3. 检测“两个方向都为红灯”——用来判断一个完整周期结束
-    //========================================================
-    Not(in=Xj1, out=nXj1);
-    Not(in=Xj0, out=nXj0);
-    And(a=Xj2, b=nXj1, out=XredPart);
-    And(a=XredPart, b=nXj0, out=Xred);
+    // 计算 X、Z 是否为红灯（100）
+    Not(in=xj0, out=notX0);
+    Not(in=xj1, out=notX1);
+    And(a=xj2, b=notX1, out=tmpX1);
+    And(a=tmpX1, b=notX0, out=Xred);
 
-    Not(in=Zj1, out=nZj1);
-    Not(in=Zj0, out=nZj0);
-    And(a=Zj2, b=nZj1, out=ZredPart);
-    And(a=ZredPart, b=nZj0, out=Zred);
+    Not(in=zj0, out=notZ0);
+    Not(in=zj1, out=notZ1);
+    And(a=zj2, b=notZ1, out=tmpZ1);
+    And(a=tmpZ1, b=notZ0, out=Zred);
 
-    And(a=Xred, b=Zred, out=cycleComplete);
+    And(a=Xred, b=Zred, out=cycleDone);
 
-    //========================================================
-    // 4. 行人倒计时计数器：CounterDec + Decoder
-    //========================================================
+    //============================
+    // 行人倒计时计数器
+    //============================
     Not(in=PowerOn, out=notPowerOn);
-    Not(in=crossing, out=notCrossing);
-    // 非过街状态或关机时复位计数器
-    Or(a=notPowerOn, b=notCrossing, out=timerReset);
+    Not(in=stateCount, out=notStateCount);
+
+    Or(a=notPowerOn, b=notStateCount, out=timerReset);
 
     CounterDec(
-        dec   = crossing,
-        reset = timerReset,
-        out[0] = cnt0, out[1] = cnt1, out[2] = cnt2, out[3] = cnt3
+        dec=stateCount,
+        reset=timerReset,
+        out[0]=cnt0,
+        out[1]=cnt1,
+        out[2]=cnt2,
+        out[3]=cnt3
     );
 
-    // 判断计数是否已经减到 0
-    Or(a=cnt0, b=cnt1, out=any01);
-    Or(a=cnt2, b=cnt3, out=any23);
-    Or(a=any01, b=any23, out=anyCnt);
-    Not(in=anyCnt, out=timerDone);
+    // 计数是否为 0（所有位为 0）
+    Or(a=cnt0, b=cnt1, out=tBit01);
+    Or(a=cnt2, b=cnt3, out=tBit23);
+    Or(a=tBit01, b=tBit23, out=anyBitSet);
+    Not(in=anyBitSet, out=timerDone);
 
-    // 4bit → 七段译码
+    // 七段译码
     Decoder(
-        in[0]=cnt0, in[1]=cnt1, in[2]=cnt2, in[3]=cnt3,
-        a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG
+        in[0]=cnt0,
+        in[1]=cnt1,
+        in[2]=cnt2,
+        in[3]=cnt3,
+        a=segA,
+        b=segB,
+        c=segC,
+        d=segD,
+        e=segE,
+        f=segF,
+        g=segG
     );
 
-    // 只有在 crossing=1（行人过街计时阶段）才点亮数码管
-    Mux(a=segA, b=false, sel=crossing, out=C[0]);
-    Mux(a=segB, b=false, sel=crossing, out=C[1]);
-    Mux(a=segC, b=false, sel=crossing, out=C[2]);
-    Mux(a=segD, b=false, sel=crossing, out=C[3]);
-    Mux(a=segE, b=false, sel=crossing, out=C[4]);
-    Mux(a=segF, b=false, sel=crossing, out=C[5]);
-    Mux(a=segG, b=false, sel=crossing, out=C[6]);
+    // 只有在倒计时时显示数字，否则熄灭
+    Mux(a=segA, b=false, sel=stateCount, out=C[0]);
+    Mux(a=segB, b=false, sel=stateCount, out=C[1]);
+    Mux(a=segC, b=false, sel=stateCount, out=C[2]);
+    Mux(a=segD, b=false, sel=stateCount, out=C[3]);
+    Mux(a=segE, b=false, sel=stateCount, out=C[4]);
+    Mux(a=segF, b=false, sel=stateCount, out=C[5]);
+    Mux(a=segG, b=false, sel=stateCount, out=C[6]);
 
-    //========================================================
-    // 5. 按钮逻辑：ButtonPressed = “本轮是否有人按过按钮”
-    //========================================================
-    // 清零条件：正在过街且计时结束
-    And(a=crossing, b=timerDone, out=clearFlag);
+    //============================
+    // 按钮锁存逻辑（ButtonPressed）
+    //============================
+    DFF(in=nextFlag, out=flag);
 
-    // 置位：Button 高电平任意时刻都置位
-    Or(a=Button, b=buttonFlag, out=flagOrButton);
+    // 按下按钮立即置位
+    Or(a=Button, b=false, out=setFlag);
 
+    // 倒计时结束时清零
+    And(a=stateCount, b=timerDone, out=clearFlag);
     Not(in=clearFlag, out=notClearFlag);
-    And(a=flagOrButton, b=notClearFlag, out=flagTemp);
 
-    // PowerOn=0 时强制清零
-    Mux(a=flagTemp, b=false, sel=notPowerOn, out=nextFlag);
+    And(a=flag, b=notClearFlag, out=flagHold);
+    Or(a=setFlag, b=flagHold, out=flagNextTemp);
 
-    Or(a=buttonFlag, b=false, out=ButtonPressed);
+    // PowerOn 为 0 时强制清零
+    Mux(a=false, b=flagNextTemp, sel=PowerOn, out=nextFlag);
 
-    //========================================================
-    // 6. crossing 状态机：
-    //    - buttonFlag & cycleComplete → 进入过街阶段
-    //    - crossing & !timerDone      → 维持过街
-    //    - crossing & timerDone       → 退出过街
-    //========================================================
-    And(a=buttonFlag, b=cycleComplete, out=startCross);
+    // ButtonPressed 输出：是否有挂起或正在进行的请求
+    Or(a=flag, b=false, out=ButtonPressed);
+
+    //============================
+    // 状态转移方程
+    //============================
+
+    // idle -> wait 条件：已有按钮请求
+    And(a=stateIdle, b=flag, out=goWaitFromIdle);
+
+    // wait -> wait：尚未到两个方向红灯
+    Not(in=cycleDone, out=notCycleDone);
+    And(a=stateWait, b=notCycleDone, out=stayWait);
+
+    // wait -> count：两个方向红灯，开始倒计时
+    And(a=stateWait, b=cycleDone, out=goCountFromWait);
+
+    // count -> count：倒计时尚未结束
     Not(in=timerDone, out=notTimerDone);
-    And(a=crossing, b=notTimerDone, out=stayCross);
-    Or(a=startCross, b=stayCross, out=nextCrossTemp);
+    And(a=stateCount, b=notTimerDone, out=stayCount);
 
-    // PowerOn=0 时 crossing 归零
-    Mux(a=nextCrossTemp, b=false, sel=notPowerOn, out=nextCross);
+    // 组合得到 next 状态（PowerOn=1 时的正常 next）
+    Or(a=goWaitFromIdle,   b=stayWait,   out=nextS0temp);
+    Or(a=goCountFromWait,  b=stayCount,  out=nextS1temp);
 
-    //========================================================
-    // 7. Wait 信号：只要系统开机且不在行人过街阶段，就必须等待
-    //========================================================
-    Not(in=crossing, out=notCrossing2);
-    And(a=notCrossing2, b=PowerOn, out=Wait);
+    // 加入 PowerOn 复位：PowerOn=0 时强制到状态 00
+    Mux(a=false, b=nextS0temp, sel=PowerOn, out=nextS0);
+    Mux(a=false, b=nextS1temp, sel=PowerOn, out=nextS1);
 
-    //========================================================
-    // 8. 最终红绿灯输出：
-    //    - 正常时跟随 JunctionController
-    //    - crossing=1 时两个方向都保持“红灯亮、黄绿灭”
-    //========================================================
-    Mux(a=Xj0, b=false, sel=crossing, out=X[0]);
-    Mux(a=Xj1, b=false, sel=crossing, out=X[1]);
-    Mux(a=Xj2, b=true,  sel=crossing, out=X[2]);
+    //============================
+    // Wait 输出：有请求且不在倒计时阶段
+    //============================
+    And(a=flag, b=notStateCount, out=waitTemp);
+    Or(a=waitTemp, b=false, out=Wait);
 
-    Mux(a=Zj0, b=false, sel=crossing, out=Z[0]);
-    Mux(a=Zj1, b=false, sel=crossing, out=Z[1]);
-    Mux(a=Zj2, b=true,  sel=crossing, out=Z[2]);
+    //============================
+    // 车辆信号灯输出
+    // 倒计时时强制四个方向全红，其余时间按 JunctionController
+    //============================
+    Mux(a=xj0, b=false, sel=stateCount, out=X[0]);
+    Mux(a=xj1, b=false, sel=stateCount, out=X[1]);
+    Mux(a=xj2, b=true,  sel=stateCount, out=X[2]);
+
+    Mux(a=zj0, b=false, sel=stateCount, out=Z[0]);
+    Mux(a=zj1, b=false, sel=stateCount, out=Z[1]);
+    Mux(a=zj2, b=true,  sel=stateCount, out=Z[2]);
 }
