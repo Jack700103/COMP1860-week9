@@ -1,83 +1,308 @@
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
-
     PARTS:
-    // 状态寄存器
-    DFF(in=nextS0, out=s0);
-    DFF(in=nextS1, out=s1);
 
-    // 状态译码
-    Not(in=s0, out=nots0);
-    Not(in=s1, out=nots1);
-    And(a=nots0, b=nots1, out=idle);        // 状态0：等待
-    And(a=s0, b=nots1, out=running);        // 状态1：灯运行
-    And(a=nots0, b=s1, out=countdown);      // 状态2：行人倒计时
-
-    // 按钮保持
-    DFF(in=nextFlag, out=flag);
-    And(a=idle, b=Button, out=setFlag);
-    And(a=countdown, b=timerDone, out=clearFlag);
-    Not(in=clearFlag, out=notClear);
-    And(a=flag, b=notClear, out=flagHold);
-    Or(a=setFlag, b=flagHold, out=flagUpdate);
-    Mux(a=flagUpdate, b=false, sel=PowerOn, out=nextFlag);
-
-    // 按钮显示
-    Or(a=flag, b=false, out=ButtonPressed);
-
-    // 等待信号
-    Or(a=running, b=false, out=Wait);
-
-    // 调用主控制器
-    JunctionController(PowerOn=PowerOn, X=Xj[3], Z=Zj[3]);
-
-    // 倒计时计数器
-    CounterDec(dec=countdown, reset=idle, out[0]=c0, out[1]=c1, out[2]=c2, out[3]=c3);
-    Or(a=c0, b=c1, out=t0);
-    Or(a=c2, b=c3, out=t1);
-    Or(a=t0, b=t1, out=tSet);
-    Not(in=tSet, out=timerDone);
-
-    // 七段译码
-    Decoder(in[0]=c0, in[1]=c1, in[2]=c2, in[3]=c3,
-            a=Ca, b=Cb, c=Cc, d=Cd, e=Ce, f=Cf, g=Cg);
-
-    Mux(a=Ca, b=false, sel=countdown, out=C[0]);
-    Mux(a=Cb, b=false, sel=countdown, out=C[1]);
-    Mux(a=Cc, b=false, sel=countdown, out=C[2]);
-    Mux(a=Cd, b=false, sel=countdown, out=C[3]);
-    Mux(a=Ce, b=false, sel=countdown, out=C[4]);
-    Mux(a=Cf, b=false, sel=countdown, out=C[5]);
-    Mux(a=Cg, b=false, sel=countdown, out=C[6]);
-
-    // 红灯判断
-    Not(in=Xj[0], out=nX0);
-    Not(in=Xj[1], out=nX1);
-    And(a=Xj[2], b=nX1, out=tX);
-    And(a=tX, b=nX0, out=XR);
-    Not(in=Zj[0], out=nZ0);
-    Not(in=Zj[1], out=nZ1);
-    And(a=Zj[2], b=nZ1, out=tZ);
-    And(a=tZ, b=nZ0, out=ZR);
-    And(a=XR, b=ZR, out=done);
-
-    // 状态转移逻辑
-    And(a=idle, b=flag, out=goRun);
-    And(a=running, b=done, out=goCount);
-    And(a=countdown, b=timerDone, out=goIdle);
-
-    // next 状态
-    Or(a=goRun, b=goCount, out=nexts0temp);
-    Or(a=goCount, b=goIdle, out=nexts1temp);
-    Mux(a=nexts0temp, b=true, sel=PowerOn, out=nextS0);
-    Mux(a=nexts1temp, b=false, sel=PowerOn, out=nextS1);
-
-    // 输出灯
-    Mux(a=Xj[0], b=false, sel=countdown, out=X[0]);
-    Mux(a=Xj[1], b=false, sel=countdown, out=X[1]);
-    Mux(a=Xj[2], b=true,  sel=countdown, out=X[2]);
-    Mux(a=Zj[0], b=false, sel=countdown, out=Z[0]);
-    Mux(a=Zj[1], b=false, sel=countdown, out=Z[1]);
-    Mux(a=Zj[2], b=true,  sel=countdown, out=Z[2]);
+    // --- State Registers (5 bits) ---
+    // S4: Timer mode (1=countdown, 0=normal)
+    // S3: Current light (0=X cycle, 1=Z cycle)
+    // S2-S0: State within current cycle
+    DFF(in=nextS4, out=S4);
+    DFF(in=nextS3, out=S3);
+    DFF(in=nextS2, out=S2);
+    DFF(in=nextS1, out=S1);
+    DFF(in=nextS0, out=S0);
+    
+    // --- Timer Register (4 bits) ---
+    DFF(in=nextTimer3, out=Timer3);
+    DFF(in=nextTimer2, out=Timer2);
+    DFF(in=nextTimer1, out=Timer1);
+    DFF(in=nextTimer0, out=Timer0);
+    
+    // --- Button Press Detection ---
+    DFF(in=Button, out=ButtonPrev);
+    Not(in=ButtonPrev, out=notButtonPrev);
+    And(a=Button, b=notButtonPrev, out=ButtonRisingEdge);
+    
+    // ButtonPressed latch
+    DFF(in=nextBP, out=ButtonPressedReg);
+    Or(a=ButtonRisingEdge, b=ButtonPressedReg, out=BPOr);
+    And(a=BPOr, b=PowerOn, out=BPAnd);
+    Not(in=S4, out=notS4);
+    And(a=BPAnd, b=notS4, out=nextBPInput);
+    Mux(a=false, b=nextBPInput, sel=PowerOn, out=nextBP);
+    
+    // Wait signal: 1 when in normal mode, 0 when in timer mode
+    Not(in=S4, out=Wait);
+    
+    // --- Normal State Transition Logic ---
+    // Same as JunctionController but with timer mode control
+    
+    // State transition logic (from S2,S1,S0)
+    Not(in=S0, out=notS0);
+    Xor(a=S1, b=S0, out=xorS1S0);
+    And(a=S1, b=S0, out=andS1S0);
+    Xor(a=S2, b=andS1S0, out=xorS2);
+    
+    // Normal next state
+    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2Normal);
+    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1Normal);
+    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0Normal);
+    
+    // S3 logic: toggle when cycle completes
+    // Check if at end of cycle (state 100 for X or 000 for Z)
+    And(a=S2, b=notS1, out=S2andNotS1);
+    And(a=S2andNotS1, b=notS0, out=endOfCycle);
+    
+    // Toggle S3 at end of cycle
+    Xor(a=S3, b=endOfCycle, out=nextS3Normal);
+    
+    // --- Timer Mode Control ---
+    // Enter timer mode when:
+    // 1. Button was pressed (ButtonPressedReg=1)
+    // 2. Both lights are RED (at the sync point)
+    // 3. Power is on
+    
+    // Check if at sync point (both lights should be RED)
+    // This occurs when S3=0 and S2=0 (X is RED) OR
+    // Actually, we need to check specific state
+    // After Z completes, we're at state: S3=1, S2=0, S1=0, S0=0
+    And(a=S3, b=notS2, out=atZRed);
+    And(a=atZRed, b=notS1, out=atZRed2);
+    And(a=atZRed2, b=notS0, out=atSyncPoint);
+    
+    // Conditions to start timer
+    And(a=ButtonPressedReg, b=atSyncPoint, out=startTimerCond);
+    And(a=startTimerCond, b=PowerOn, out=startTimer);
+    
+    // Exit timer when count reaches 0
+    Not(in=Timer0, out=notT0);
+    Not(in=Timer1, out=notT1);
+    Not(in=Timer2, out=notT2);
+    Not(in=Timer3, out=notT3);
+    And(a=notT3, b=notT2, out=andT32);
+    And(a=notT1, b=notT0, out=andT10);
+    And(a=andT32, b=andT10, out=timerZero);
+    
+    And(a=S4, b=timerZero, out=exitTimer);
+    
+    // Next S4 (timer mode)
+    Or(a=S4, b=startTimer, out=stayOrStart);
+    Not(in=exitTimer, out=notExit);
+    And(a=stayOrStart, b=notExit, out=nextS4);
+    
+    // Apply timer mode to state transitions
+    Mux(a=nextS2Normal, b=S2, sel=S4, out=nextS2);
+    Mux(a=nextS1Normal, b=S1, sel=S4, out=nextS1);
+    Mux(a=nextS0Normal, b=S0, sel=S4, out=nextS0);
+    Mux(a=nextS3Normal, b=S3, sel=S4, out=nextS3);
+    
+    // --- Timer Counter Logic ---
+    // 4-bit decrementer (counts 9 down to 0)
+    
+    // Create 4-bit decrementer using full adders
+    // Subtract 1 by adding 1111 (two's complement of 1)
+    FullAdder(a=Timer0, b=true, c=false, sum=dec0, carry=carry0);
+    FullAdder(a=Timer1, b=true, c=carry0, sum=dec1, carry=carry1);
+    FullAdder(a=Timer2, b=true, c=carry1, sum=dec2, carry=carry2);
+    FullAdder(a=Timer3, b=true, c=carry2, sum=dec3, carry=carry3);
+    
+    // Select next timer value
+    // Priority: 1. Load 9 (1001) when starting timer
+    //           2. Decrement when in timer mode and not zero
+    //           3. Keep current value otherwise
+    
+    And(a=S4, b=notExit, out=decrement);
+    
+    // For each timer bit, mux between current, decremented, and 9
+    // Timer3 (MSB)
+    Mux(a=Timer3, b=dec3, sel=decrement, out=nextTimer3Temp);
+    Mux(a=nextTimer3Temp, b=true, sel=startTimer, out=nextTimer3);
+    
+    // Timer2
+    Mux(a=Timer2, b=dec2, sel=decrement, out=nextTimer2Temp);
+    Mux(a=nextTimer2Temp, b=false, sel=startTimer, out=nextTimer2);
+    
+    // Timer1
+    Mux(a=Timer1, b=dec1, sel=decrement, out=nextTimer1Temp);
+    Mux(a=nextTimer1Temp, b=false, sel=startTimer, out=nextTimer1);
+    
+    // Timer0 (LSB)
+    Mux(a=Timer0, b=dec0, sel=decrement, out=nextTimer0Temp);
+    Mux(a=nextTimer0Temp, b=true, sel=startTimer, out=nextTimer0);
+    
+    // --- Traffic Light Output Logic ---
+    // Same as JunctionController, but override with RED in timer mode
+    
+    // Original logic from JunctionController
+    Mux(a=S1, b=false, sel=S2, out=xstate1);
+    Mux(a=S0, b=false, sel=S2, out=xstate0);
+    
+    Mux(a=false, b=S1, sel=S2, out=zstate1);
+    Mux(a=false, b=S0, sel=S2, out=zstate0);
+    
+    // X light outputs
+    Not(in=xstate1, out=Xred);
+    Or(a=xstate0, b=false, out=Xamber);
+    Not(in=xstate0, out=notxstate0);
+    And(a=xstate1, b=notxstate0, out=Xgreen);
+    
+    // Z light outputs
+    Not(in=zstate1, out=Zred);
+    Or(a=zstate0, b=false, out=Zamber);
+    Not(in=zstate0, out=notzstate0);
+    And(a=zstate1, b=notzstate0, out=Zgreen);
+    
+    // Apply timer mode override
+    Mux(a=Xred, b=true, sel=S4, out=X[2]);    // RED
+    Mux(a=Xamber, b=false, sel=S4, out=X[1]); // AMBER
+    Mux(a=Xgreen, b=false, sel=S4, out=X[0]); // GREEN
+    
+    Mux(a=Zred, b=true, sel=S4, out=Z[2]);    // RED
+    Mux(a=Zamber, b=false, sel=S4, out=Z[1]); // AMBER
+    Mux(a=Zgreen, b=false, sel=S4, out=Z[0]); // GREEN
+    
+    // --- 7-Segment Display Decoder ---
+    // Based on 8.jpg: segments are arranged as:
+    //    e
+    //  d   f
+    //    b
+    //  g   c
+    //    a
+    // C[6..0] = a, b, c, d, e, f, g
+    
+    // Truth table for 7-seg display (common cathode, 1=on, 0=off)
+    // Digit: segments abcdefg
+    // 0: 1111110
+    // 1: 0110000
+    // 2: 1101101
+    // 3: 1111001
+    // 4: 0110011
+    // 5: 1011011
+    // 6: 1011111
+    // 7: 1110000
+    // 8: 1111111
+    // 9: 1111011
+    
+    // Segment a (C[6]): on for 0,2,3,5,6,7,8,9
+    // Logic: a = T3 + T2'T1'T0' + T2'T1T0 + T2T1'T0 + T2T1T0'
+    Or(a=T3, b=notT2, out=or1);
+    And(a=or1, b=notT1, out=and1);
+    And(a=and1, b=notT0, out=term1);
+    
+    And(a=notT2, b=T1, out=and2);
+    And(a=and2, b=T0, out=term2);
+    
+    And(a=T2, b=notT1, out=and3);
+    And(a=and3, b=T0, out=term3);
+    
+    And(a=T2, b=T1, out=and4);
+    And(a=and4, b=notT0, out=term4);
+    
+    Or(a=term1, b=term2, out=or2);
+    Or(a=term3, b=term4, out=or3);
+    Or(a=or2, b=or3, out=or4);
+    Or(a=T3, b=or4, out=segA);
+    And(a=segA, b=S4, out=C[6]);
+    
+    // Segment b (C[5]): on for 0,1,2,3,4,7,8,9
+    // Logic: b = T3'T2' + T3'T1'T0' + T3'T1T0 + T3
+    And(a=notT3, b=notT2, out=term5);
+    And(a=notT3, b=notT1, out=and5);
+    And(a=and5, b=notT0, out=term6);
+    And(a=notT3, b=T1, out=and6);
+    And(a=and6, b=T0, out=term7);
+    
+    Or(a=term5, b=term6, out=or5);
+    Or(a=or5, b=term7, out=or6);
+    Or(a=or6, b=T3, out=segB);
+    And(a=segB, b=S4, out=C[5]);
+    
+    // Segment c (C[4]): on for 0,1,3,4,5,6,7,8,9
+    // Logic: c = T3'T2' + T3'T1'T0 + T3'T1T0' + T3
+    And(a=notT3, b=notT1, out=and7);
+    And(a=and7, b=T0, out=term8);
+    And(a=notT3, b=T1, out=and8);
+    And(a=and8, b=notT0, out=term9);
+    
+    Or(a=term5, b=term8, out=or7);
+    Or(a=or7, b=term9, out=or8);
+    Or(a=or8, b=T3, out=segC);
+    And(a=segC, b=S4, out=C[4]);
+    
+    // Segment d (C[3]): on for 0,2,3,5,6,8,9
+    // Logic: d = T3'T2'T1'T0' + T3'T2'T1T0 + T3'T2T1'T0 + T3'T2T1T0' + T3T2'T1'T0'
+    And(a=notT3, b=notT2, out=and9);
+    And(a=and9, b=notT1, out=and10);
+    And(a=and10, b=notT0, out=term10);
+    
+    And(a=and9, b=T1, out=and11);
+    And(a=and11, b=T0, out=term11);
+    
+    And(a=notT3, b=T2, out=and12);
+    And(a=and12, b=notT1, out=and13);
+    And(a=and13, b=T0, out=term12);
+    
+    And(a=and12, b=T1, out=and14);
+    And(a=and14, b=notT0, out=term13);
+    
+    And(a=T3, b=notT2, out=and15);
+    And(a=and15, b=notT1, out=and16);
+    And(a=and16, b=notT0, out=term14);
+    
+    Or(a=term10, b=term11, out=or9);
+    Or(a=or9, b=term12, out=or10);
+    Or(a=or10, b=term13, out=or11);
+    Or(a=or11, b=term14, out=segD);
+    And(a=segD, b=S4, out=C[3]);
+    
+    // Segment e (C[2]): on for 0,2,6,8
+    // Logic: e = T3'T2'T1'T0' + T3'T2T1'T0' + T3T2'T1'T0'
+    And(a=and10, b=notT0, out=term15);
+    
+    And(a=and12, b=notT1, out=and17);
+    And(a=and17, b=notT0, out=term16);
+    
+    And(a=and15, b=notT1, out=and18);
+    And(a=and18, b=notT0, out=term17);
+    
+    Or(a=term15, b=term16, out=or12);
+    Or(a=or12, b=term17, out=segE);
+    And(a=segE, b=S4, out=C[2]);
+    
+    // Segment f (C[1]): on for 0,4,5,6,8,9
+    // Logic: f = T3 + T2'T1'T0' + T2T1'T0 + T2T1T0'
+    And(a=notT2, b=notT1, out=and19);
+    And(a=and19, b=notT0, out=term18);
+    
+    And(a=T2, b=notT1, out=and20);
+    And(a=and20, b=T0, out=term19);
+    
+    And(a=T2, b=T1, out=and21);
+    And(a=and21, b=notT0, out=term20);
+    
+    Or(a=term18, b=term19, out=or13);
+    Or(a=or13, b=term20, out=or14);
+    Or(a=T3, b=or14, out=segF);
+    And(a=segF, b=S4, out=C[1]);
+    
+    // Segment g (C[0]): on for 2,3,4,5,6,8,9
+    // Logic: g = T3 + T2'T1T0' + T2T1'T0 + T2T1T0'
+    And(a=notT2, b=T1, out=and22);
+    And(a=and22, b=notT0, out=term21);
+    
+    And(a=T2, b=notT1, out=and23);
+    And(a=and23, b=T0, out=term22);
+    
+    And(a=T2, b=T1, out=and24);
+    And(a=and24, b=notT0, out=term23);
+    
+    Or(a=term21, b=term22, out=or15);
+    Or(a=or15, b=term23, out=or16);
+    Or(a=T3, b=or16, out=segG);
+    And(a=segG, b=S4, out=C[0]);
+    
+    // --- Final Outputs ---
+    // ButtonPressed output
+    And(a=ButtonPressedReg, b=PowerOn, out=ButtonPressed);
 }
