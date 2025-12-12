@@ -5,11 +5,11 @@ CHIP Crossing {
     PARTS:
     //======================================================================
     // 状态寄存器：
-    //  crossActive    = 当前是否处在“行人放行+倒计时”阶段
-    //  buttonLatched  = 自上次完成一次过街后到现在，是否有人按过按钮
+    //   crossActive    : 当前是否处在“行人放行+倒计时”阶段
+    //   buttonLatched  : 自上次完成一次过街后到现在，是否有人按过按钮
     //======================================================================
-    DFF(in=nextCrossActive,  out=crossActive);
-    DFF(in=nextButtonLatched,out=buttonLatched);
+    DFF(in=nextCrossActive,   out=crossActive);
+    DFF(in=nextButtonLatched, out=buttonLatched);
 
     //======================================================================
     // 1) 交通灯控制：在行人过街期间关掉 JunctionController 的电源，
@@ -18,21 +18,26 @@ CHIP Crossing {
     Not(in=crossActive, out=notCrossActive);
     And(a=PowerOn, b=notCrossActive, out=powerForJunc);
 
-    JunctionController(PowerOn=powerForJunc, X=Xj, Z=Zj);
+    // 不能使用内部总线下标，所以把 X、Z 拆成单比特信号
+    JunctionController(
+        PowerOn=powerForJunc,
+        X[0]=Xj0, X[1]=Xj1, X[2]=Xj2,
+        Z[0]=Zj0, Z[1]=Zj1, Z[2]=Zj2
+    );
 
     //======================================================================
     // 2) 检测 “X 和 Z 都是红灯”：X == 100 且 Z == 100
     //======================================================================
     // X 是否为 RED = 1 0 0
-    Not(in=Xj[1], out=notX1);
-    Not(in=Xj[0], out=notX0);
-    And(a=Xj[2], b=notX1, out=xTemp1);
+    Not(in=Xj1, out=notX1);
+    Not(in=Xj0, out=notX0);
+    And(a=Xj2, b=notX1, out=xTemp1);
     And(a=xTemp1, b=notX0, out=XisRed);
 
     // Z 是否为 RED = 1 0 0
-    Not(in=Zj[1], out=notZ1);
-    Not(in=Zj[0], out=notZ0);
-    And(a=Zj[2], b=notZ1, out=zTemp1);
+    Not(in=Zj1, out=notZ1);
+    Not(in=Zj0, out=notZ0);
+    And(a=Zj2, b=notZ1, out=zTemp1);
     And(a=zTemp1, b=notZ0, out=ZisRed);
 
     And(a=XisRed, b=ZisRed, out=bothRed);
@@ -41,25 +46,34 @@ CHIP Crossing {
     // 3) 计数器：在 crossActive=1 时递减，从 9 数到 0。
     //    reset 在“开始过街”的那个时钟周期拉高一次，把计数器置 9。
     //======================================================================
-    CounterDec(dec=crossActive, reset=counterReset, out=counter);
+    CounterDec(
+        dec=crossActive,
+        reset=counterReset,
+        out[0]=count0,
+        out[1]=count1,
+        out[2]=count2,
+        out[3]=count3
+    );
 
-    // 4bit → 7 段
-    Decoder(in=counter, a=deca, b=decb, c=decc, d=decd, e=dece, f=decf, g=decg);
+    // 4 bit → 7 段译码
+    Decoder(
+        in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3,
+        a=deca, b=decb, c=decc, d=decd, e=dece, f=decf, g=decg
+    );
 
     //======================================================================
-    // 4) 检测计数结束：counter == 0000 且 crossActive=1
+    // 4) 检测计数结束：count == 0000 且 crossActive=1
     //======================================================================
-    Or(a=counter[0], b=counter[1], out=or01);
-    Or(a=counter[2], b=counter[3], out=or23);
-    Or(a=or01, b=or23, out=anyBit);       // 任一位为 1，则 anyBit=1
-    Not(in=anyBit, out=countIsZero);      // all zero 时 countIsZero=1
+    Or(a=count0, b=count1, out=or01);
+    Or(a=count2, b=count3, out=or23);
+    Or(a=or01,   b=or23,   out=anyBit);      // 任一位为 1，则 anyBit=1
+    Not(in=anyBit, out=countIsZero);         // 全 0 时 countIsZero=1
 
     And(a=crossActive, b=countIsZero, out=timerDone);
 
     //======================================================================
     // 5) 按钮锁存：
-    //    - 有人按按钮就置位（Button=1）
-    //    - 一直保持为 1，直到本次过街倒计时结束 timerDone=1
+    //    有人按按钮就置位（Button=1），一直保持到本次过街计时结束。
     //======================================================================
     Or(a=Button, b=buttonLatched, out=latchedOrButton);
     Not(in=timerDone, out=notTimerDone);
@@ -67,9 +81,9 @@ CHIP Crossing {
 
     //======================================================================
     // 6) 过街状态 crossActive：
-    //    - 在 “X、Z 都红” 且 已有人按过按钮（buttonLatched=1）时，
-    //      若当前不在过街，则进入过街 shouldStart=1
-    //    - 进入后保持 crossActive=1，直到 timerDone=1
+    //    - 在 “X、Z 都红” 且 已有人按过按钮 时，且当前不在过街，
+    //      进入过街 shouldStart=1；
+    //    - 进入后保持 crossActive=1，直到 timerDone=1。
     //======================================================================
     Not(in=crossActive, out=notCrossActive2);
     And(a=bothRed, b=buttonLatched, out=redAndRequest);
@@ -85,7 +99,7 @@ CHIP Crossing {
     // 7) 输出信号
     //======================================================================
 
-    // ButtonPressed：表示当前这一轮是否有人按过
+    // ButtonPressed：表示当前这一轮是否已经有人按过
     Or(a=buttonLatched, b=false, out=ButtonPressed);
 
     // Wait：只有在真正允许过街（crossActive=1）时为 0，其余时间为 1
@@ -101,11 +115,11 @@ CHIP Crossing {
     Mux(a=false, b=decg, sel=crossActive, out=C[6]);
 
     // 把 JunctionController 的灯状态直接透传出去
-    Or(a=Xj[0], b=false, out=X[0]);
-    Or(a=Xj[1], b=false, out=X[1]);
-    Or(a=Xj[2], b=false, out=X[2]);
+    Or(a=Xj0, b=false, out=X[0]);
+    Or(a=Xj1, b=false, out=X[1]);
+    Or(a=Xj2, b=false, out=X[2]);
 
-    Or(a=Zj[0], b=false, out=Z[0]);
-    Or(a=Zj[1], b=false, out=Z[1]);
-    Or(a=Zj[2], b=false, out=Z[2]);
+    Or(a=Zj0, b=false, out=Z[0]);
+    Or(a=Zj1, b=false, out=Z[1]);
+    Or(a=Zj2, b=false, out=Z[2]);
 }
