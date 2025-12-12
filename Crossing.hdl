@@ -1,185 +1,147 @@
 CHIP Crossing {
-    IN  PowerOn, Button;
+    IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
-
     PARTS:
-    // ----------------------------
-    // State machine (3 states encoded on s0,s1)
-    // state0 = 00, state1 = 01, state2 = 10
-    // ----------------------------
-    DFF(in=nexts0, out=s0);
-    DFF(in=nexts1, out=s1);
-
-    Not(in=s0, out=nots0);
-    Not(in=s1, out=nots1);
-
-    And(a=nots0, b=nots1, out=state0);
-    And(a=s0,    b=nots1, out=state1);
-    And(a=nots0, b=s1,    out=state2);
-
-    // Power gating
-    Not(in=PowerOn, out=notPowerOn);
-
-    // ----------------------------
-    // Junction lights controller (given in project)
-    // ----------------------------
-    JunctionController(
-        PowerOn=PowerOn,
-        X[0]=Xjunc0, X[1]=Xjunc1, X[2]=Xjunc2,
-        Z[0]=Zjunc0, Z[1]=Zjunc1, Z[2]=Zjunc2
-    );
-
-    // Optional 1-cycle stabilize (kept from your version)
-    DFF(in=Xjunc0, out=Xtemp0);
-    DFF(in=Xjunc1, out=Xtemp1);
-    DFF(in=Xjunc2, out=Xtemp2);
-
-    DFF(in=Zjunc0, out=Ztemp0);
-    DFF(in=Zjunc1, out=Ztemp1);
-    DFF(in=Zjunc2, out=Ztemp2);
-
-    // ----------------------------
-    // Detect "both red" to mark cycle complete
-    // X is red when Xtemp == 100, Z is red when Ztemp == 100
-    // ----------------------------
-    Not(in=Xtemp1, out=notXtemp1);
-    Not(in=Xtemp0, out=notXtemp0);
-    And(a=Xtemp2, b=notXtemp1, out=XisRedPart);
-    And(a=XisRedPart, b=notXtemp0, out=XisRed);
-
-    Not(in=Ztemp1, out=notZtemp1);
-    Not(in=Ztemp0, out=notZtemp0);
-    And(a=Ztemp2, b=notZtemp1, out=ZisRedPart);
-    And(a=ZisRedPart, b=notZtemp0, out=ZisRed);
-
-    And(a=XisRed, b=ZisRed, out=cycleComplete);
-
-    // ----------------------------
-    // Button flag: latch when pressed in state0, clear when timer done in state2
-    // ----------------------------
-    DFF(in=nextbuttonFlag, out=buttonFlag);
-
-    And(a=state0, b=Button,    out=setButtonFlag);
+    // 状态寄存器：s1 s0 组成 3 个状态
+    // state0: 正常运行、未请求
+    // state1: 已按键，等待两个方向都红灯
+    // state2: 行人过街计时
+    DFF(in=nextS0, out=s0);
+    DFF(in=nextS1, out=s1);
+    // 记住“有人按过按钮”的标志
+    DFF(in=nextButtonFlag, out=buttonFlag);
+    
+    // 状态译码
+    Not(in=s0, out=notS0);
+    Not(in=s1, out=notS1);
+    And(a=notS0, b=notS1, out=state0); // 00
+    And(a=s0, b=notS1, out=state1);   // 01
+    And(a=notS0, b=s1, out=state2);   // 10
+    
+    // JunctionController 状态寄存器（内联实现）
+    DFF(in=finalNextS2, out=S2);
+    DFF(in=finalNextS1, out=S1);
+    DFF(in=finalNextS0, out=S0);
+    
+    // JunctionController 下一状态逻辑
+    Not(in=S0, out=notS0j);
+    Xor(a=S1, b=S0, out=xorS1S0);
+    And(a=S1, b=S0, out=andS1S0);
+    Xor(a=S2, b=andS1S0, out=xorS2);
+    Mux(a=false, b=xorS2, sel=PowerOn, out=normalNextS2);
+    Mux(a=false, b=xorS1S0, sel=PowerOn, out=normalNextS1);
+    Mux(a=false, b=notS0j, sel=PowerOn, out=normalNextS0);
+    
+    // X 和 Z 状态分配
+    Mux(a=false, b=S1, sel=S2, out=xState1);
+    Mux(a=false, b=S0, sel=S2, out=xState0);
+    Mux(a=S1, b=false, sel=S2, out=zState1);
+    Mux(a=S0, b=false, sel=S2, out=zState0);
+    
+    // X 和 Z 灯光输出（正常情况）
+    Not(in=xState1, out=Xjunc2); // RED
+    Or(a=xState0, b=false, out=Xjunc1); // AMBER
+    Not(in=xState0, out=notXState0);
+    And(a=xState1, b=notXState0, out=Xjunc0); // GREEN
+    Not(in=zState1, out=Zjunc2); // RED
+    Or(a=zState0, b=false, out=Zjunc1); // AMBER
+    Not(in=zState0, out=notZState0);
+    And(a=zState1, b=notZState0, out=Zjunc0); // GREEN
+    
+    // 检测红灯状态
+    Not(in=Xjunc1, out=notXjunc1);
+    Not(in=Xjunc0, out=notXjunc0);
+    And(a=Xjunc2, b=notXjunc1, out=xIsRedPart);
+    And(a=xIsRedPart, b=notXjunc0, out=xIsRed);
+    Not(in=Zjunc1, out=notZjunc1);
+    Not(in=Zjunc0, out=notZjunc0);
+    And(a=Zjunc2, b=notZjunc1, out=zIsRedPart);
+    And(a=zIsRedPart, b=notZjunc0, out=zIsRed);
+    And(a=xIsRed, b=zIsRed, out=cycleComplete);
+    
+    // 暂停逻辑：state2 或 (state1 且 cycleComplete)
+    Not(in=S2, out=notS2);
+    And(a=cycleComplete, b=notS2, out=conditionedCycleComplete);
+    And(a=state1, b=conditionedCycleComplete, out=pauseExtra);
+    Or(a=state2, b=pauseExtra, out=pause);
+    
+    // 应用暂停信号到 JunctionController 状态
+    Mux(a=normalNextS2, b=S2, sel=pause, out=finalNextS2);
+    Mux(a=normalNextS1, b=S1, sel=pause, out=finalNextS1);
+    Mux(a=normalNextS0, b=S0, sel=pause, out=finalNextS0);
+    
+    // 按钮逻辑
+    And(a=state0, b=Button, out=setButtonFlag);
     And(a=state2, b=timerDone, out=clearButtonFlag);
-
     Or(a=setButtonFlag, b=buttonFlag, out=buttonFlagBeforeClear);
     Not(in=clearButtonFlag, out=notClearButtonFlag);
     And(a=buttonFlagBeforeClear, b=notClearButtonFlag, out=buttonFlagTemp);
-
-    // clear everything when PowerOn=0
-    Mux(a=buttonFlagTemp, b=false, sel=notPowerOn, out=nextbuttonFlag);
-
+    Not(in=PowerOn, out=notPowerOn);
+    Mux(a=buttonFlagTemp, b=false, sel=notPowerOn, out=nextButtonFlag);
     Or(a=buttonFlag, b=false, out=ButtonPressed);
-
-    // ----------------------------
-    // Wait output: 1 except during state2 (countdown / all-red)
-    // ----------------------------
-    Not(in=state2, out=Wait);
-
-    // ----------------------------
-    // X/Z outputs: normal lights unless in state2 => force all-red (100)
-    // ----------------------------
-    Mux(a=Xtemp0, b=false, sel=state2, out=X[0]);
-    Mux(a=Xtemp1, b=false, sel=state2, out=X[1]);
-    Mux(a=Xtemp2, b=true,  sel=state2, out=X[2]);
-
-    Mux(a=Ztemp0, b=false, sel=state2, out=Z[0]);
-    Mux(a=Ztemp1, b=false, sel=state2, out=Z[1]);
-    Mux(a=Ztemp2, b=true,  sel=state2, out=Z[2]);
-
-    // ----------------------------
-    // 1-tick delayed state2 flag (so first tick in state2 keeps "9")
-    // started = state2 delayed by 1 clock
-    // decEnable = state2 & started
-    // ----------------------------
-    DFF(in=state2, out=started);
-    And(a=state2, b=started, out=decEnable);
-
-    // ----------------------------
-    // Down counter (4-bit) that loads 9 (1001) when NOT in state2 or PowerOff
-    // and decrements by 1 each tick when decEnable=1.
-    // Bits: count0 LSB ... count3 MSB
-    // ----------------------------
-    Not(in=state2, out=notstate2_forReset);
-    Or(a=notPowerOn, b=notstate2_forReset, out=timerReset);
-
-    // Count registers
-    DFF(in=nextCount0, out=count0);
-    DFF(in=nextCount1, out=count1);
-    DFF(in=nextCount2, out=count2);
-    DFF(in=nextCount3, out=count3);
-
-    // Decrement-by-1 combinational logic using borrows:
-    // sum0 = ~c0, b0 = ~c0
-    // sum1 = c1 xor b0, b1 = (~c1) & b0
-    // sum2 = c2 xor b1, b2 = (~c2) & b1
-    // sum3 = c3 xor b2, b3 unused
-    Not(in=count0, out=sum0);
-    Not(in=count0, out=borrow0);
-
-    Xor(a=count1, b=borrow0, out=sum1);
-    Not(in=count1, out=notCount1);
-    And(a=notCount1, b=borrow0, out=borrow1);
-
-    Xor(a=count2, b=borrow1, out=sum2);
-    Not(in=count2, out=notCount2);
-    And(a=notCount2, b=borrow1, out=borrow2);
-
-    Xor(a=count3, b=borrow2, out=sum3);
-
-    // If decEnable: use sum*, else hold count*
-    Mux(a=count0, b=sum0, sel=decEnable, out=decOrHold0);
-    Mux(a=count1, b=sum1, sel=decEnable, out=decOrHold1);
-    Mux(a=count2, b=sum2, sel=decEnable, out=decOrHold2);
-    Mux(a=count3, b=sum3, sel=decEnable, out=decOrHold3);
-
-    // If timerReset: load 9 (1001), else use dec/hold result
-    // count0=1, count1=0, count2=0, count3=1
-    Mux(a=decOrHold0, b=true,  sel=timerReset, out=nextCount0);
-    Mux(a=decOrHold1, b=false, sel=timerReset, out=nextCount1);
-    Mux(a=decOrHold2, b=false, sel=timerReset, out=nextCount2);
-    Mux(a=decOrHold3, b=true,  sel=timerReset, out=nextCount3);
-
-    // timerDone when count == 0
+    
+    // Wait 信号：仅在 state1 时为 1
+    Or(a=state1, b=false, out=Wait);
+    
+    // 交通灯输出：state2 时强制红灯
+    Mux(a=Xjunc0, b=false, sel=state2, out=X[0]);
+    Mux(a=Xjunc1, b=false, sel=state2, out=X[1]);
+    Mux(a=Xjunc2, b=true, sel=state2, out=X[2]);
+    Mux(a=Zjunc0, b=false, sel=state2, out=Z[0]);
+    Mux(a=Zjunc1, b=false, sel=state2, out=Z[1]);
+    Mux(a=Zjunc2, b=true, sel=state2, out=Z[2]);
+    
+    // 计时器逻辑
+    Not(in=state2, out=notState2);
+    Or(a=notPowerOn, b=notState2, out=timerReset);
+    CounterDec(
+        dec=state2,
+        reset=timerReset,
+        out[0]=count0,
+        out[1]=count1,
+        out[2]=count2,
+        out[3]=count3
+    );
+    
+    // 计时器完成检测
     Or(a=count0, b=count1, out=anyBit01);
     Or(a=count2, b=count3, out=anyBit23);
     Or(a=anyBit01, b=anyBit23, out=anyBitSet);
     Not(in=anyBitSet, out=timerDone);
-
-    // ----------------------------
-    // 7-seg decode (your provided Decoder)
-    // show C only in state2, otherwise blank (0s)
-    // ----------------------------
-    Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3,
-            a=deca, b=decb, c=decc, d=decd, e=dece, f=decf, g=decg);
-
-    Mux(a=false, b=deca, sel=state2, out=C[0]);
-    Mux(a=false, b=decb, sel=state2, out=C[1]);
-    Mux(a=false, b=decc, sel=state2, out=C[2]);
-    Mux(a=false, b=decd, sel=state2, out=C[3]);
-    Mux(a=false, b=dece, sel=state2, out=C[4]);
-    Mux(a=false, b=decf, sel=state2, out=C[5]);
-    Mux(a=false, b=decg, sel=state2, out=C[6]);
-
-    // ----------------------------
-    // Next-state logic
-    // state0 -> state1 when buttonFlag latched
-    // state1 -> state2 when cycleComplete (both red)
-    // state2 stays until timerDone, then returns to state0
-    // ----------------------------
-    And(a=state0, b=buttonFlag, out=tostate1);
-
-    Not(in=cycleComplete, out=notcycleComplete);
-    And(a=state1, b=notcycleComplete, out=staystate1);
-    Or(a=tostate1, b=staystate1, out=nexts0temp);
-
-    And(a=state1, b=cycleComplete, out=tostate2);
-
-    Not(in=timerDone, out=nottimerDone);
-    And(a=state2, b=nottimerDone, out=staystate2);
-    Or(a=tostate2, b=staystate2, out=nexts1temp);
-
-    // When PowerOff: force state0 (s0=1? / s1=0?) -> use 00 directly
-    Mux(a=nexts0temp, b=false, sel=notPowerOn, out=nexts0);
-    Mux(a=nexts1temp, b=false, sel=notPowerOn, out=nexts1);
+    
+    // 7段显示译码
+    Decoder(
+        in[0]=count0,
+        in[1]=count1,
+        in[2]=count2,
+        in[3]=count3,
+        a=decA,
+        b=decB,
+        c=decC,
+        d=decD,
+        e=decE,
+        f=decF,
+        g=decG
+    );
+    
+    // 7段显示输出：state2 时显示计时，否则熄灭
+    Mux(a=decA, b=false, sel=state2, out=C[0]);
+    Mux(a=decB, b=false, sel=state2, out=C[1]);
+    Mux(a=decC, b=false, sel=state2, out=C[2]);
+    Mux(a=decD, b=false, sel=state2, out=C[3]);
+    Mux(a=decE, b=false, sel=state2, out=C[4]);
+    Mux(a=decF, b=false, sel=state2, out=C[5]);
+    Mux(a=decG, b=false, sel=state2, out=C[6]);
+    
+    // FSM 状态转换
+    And(a=state0, b=buttonFlag, out=toState1);
+    Not(in=conditionedCycleComplete, out=notCycleComplete);
+    And(a=state1, b=notCycleComplete, out=stayState1);
+    Or(a=toState1, b=stayState1, out=nextS0Temp);
+    And(a=state1, b=conditionedCycleComplete, out=toState2);
+    Not(in=timerDone, out=notTimerDone);
+    And(a=state2, b=notTimerDone, out=stayState2);
+    Or(a=toState2, b=stayState2, out=nextS1Temp);
+    Mux(a=nextS0Temp, b=false, sel=notPowerOn, out=nextS0);
+    Mux(a=nextS1Temp, b=false, sel=notPowerOn, out=nextS1);
 }
