@@ -1,352 +1,147 @@
+// ================================================
+// Crossing Controller with Pedestrian Timer
+// ================================================
+
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     PARTS:
-    // ================================================
-    // 1. 全局状态机（严格位宽匹配，无隐式子总线访问）
-    // ================================================
-    // 状态寄存器（1位信号，仅DFF in/out引脚）
-    DFF(in=nextS2, out=S2);  // S2：1位
-    DFF(in=nextS1, out=S1);  // S1：1位
-    DFF(in=nextS0, out=S0);  // S0：1位
     
-    // 状态反相信号（1位）
-    Not(in=S2, out=notS2);
-    Not(in=S1, out=notS1);
+    // --- 主状态机 (5个状态) ---
+    // 状态编码: S2=0表示X周期, S2=1表示Z周期
+    // S1,S0: 00=红, 01=红黄, 10=绿, 11=黄
+    DFF(in=nextS2, out=S2);
+    DFF(in=nextS1, out=S1);
+    DFF(in=nextS0, out=S0);
+    
+    // 反相信号
     Not(in=S0, out=notS0);
+    Not(in=S1, out=notS1);
+    Not(in=S2, out=notS2);
     
-    // 步骤1：生成1位使能信号（严格1位，无歧义）
-    And(a=S0, b=PowerOn, out=S0en);  // 1位
-    And(a=S1, b=PowerOn, out=S1en);  // 1位
-    And(a=S2, b=PowerOn, out=S2en);  // 1位
+    // --- 计时器模式控制 ---
+    DFF(in=nextTimerMode, out=TimerMode);
+    Not(in=TimerMode, out=notTimerMode);
     
-    // 构造16位当前状态currentS（显式总线，无位宽冲突）
-    // Line25：构造第0位（S0对应16位总线）
-    Mux16(
-        a=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],  // 16位0
-        b=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],  // 16位1（仅第0位为1）
-        sel=S0en,  // sel=1位（匹配Mux16要求）
-        out=bit0    // 16位总线输出
-    );
+    // --- 按钮检测逻辑 ---
+    DFF(in=Button, out=ButtonPrev);
+    Not(in=ButtonPrev, out=notButtonPrev);
+    And(a=Button, b=notButtonPrev, out=ButtonRisingEdge);
     
-    // Line26：构造第1位（S1对应16位总线）—— 修复核心行
-    Mux16(
-        a=bit0,     // 16位总线输入（位宽匹配）
-        b=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0],  // 16位2（仅第1位为1）
-        sel=S1en,  // 1位sel（位宽匹配）
-        out=bit1    // 16位总线输出
-    );
+    // ButtonPressed寄存器
+    DFF(in=nextBP, out=ButtonPressedReg);
     
-    // Line27：构造第2位（S2对应16位总线）
-    Mux16(
-        a=bit1,     // 16位总线输入
-        b=[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],  // 16位4（仅第2位为1）
-        sel=S2en,  // 1位sel
-        out=currentS// 16位总线输出
-    );
+    // --- 状态转移逻辑 ---
+    // 正常状态转移 (来自JunctionController)
+    Xor(a=S1, b=S0, out=xorS1S0);
+    And(a=S1, b=S0, out=andS1S0);
+    Xor(a=S2, b=andS1S0, out=xorS2);
     
-    // 状态递增（Inc16 in/out均为16位，位宽匹配）
-    Inc16(in=currentS, out=incS);
+    // 正常模式下的下一状态
+    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2normal);
+    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1normal);
+    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0normal);
     
-    // 关键修复：16位总线→1位信号（显式提取，无隐式子总线访问）
-    // 提取incS第0位（对应S0）：16位→1位
-    Mux16(
-        a=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        b=incS,
-        sel=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],  // 选择第0位
-        out=incS0bus  // 16位总线（仅第0位可能为1）
-    );
-    And(a=incS0bus, b=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1], out=incS0bit);  // 16位&16位→16位，仅第0位有效
-    And(a=incS0bit, b=true, out=nextS0raw);  // 16位→1位（通过true掩码，确保仅取第0位）
+    // --- 计时器模块 ---
+    // 4位计数器，从9倒数到0
+    // 当进入计时器模式时加载9，然后在每个时钟周期递减
+    CounterDec(dec=TimerDec, reset=TimerReset, out[0]=Timer0, out[1]=Timer1, out[2]=Timer2, out[3]=Timer3);
     
-    // 提取incS第1位（对应S1）：16位→1位
-    Mux16(
-        a=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        b=incS,
-        sel=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0],  // 选择第1位
-        out=incS1bus
-    );
-    And(a=incS1bus, b=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0], out=incS1bit);
-    And(a=incS1bit, b=true, out=nextS1raw);
+    // 检查计时器是否为0 (0000)
+    Or(a=Timer0, b=Timer1, out=or01);
+    Or(a=Timer2, b=Timer3, out=or23);
+    Or(a=or01, b=or23, out=TimerNotZero);
+    Not(in=TimerNotZero, out=TimerZero);
     
-    // 提取incS第2位（对应S2）：16位→1位
-    Mux16(
-        a=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        b=incS,
-        sel=[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],  // 选择第2位
-        out=incS2bus
-    );
-    And(a=incS2bus, b=[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0], out=incS2bit);
-    And(a=incS2bit, b=true, out=nextS2raw);
+    // --- 检测Z周期完成 ---
+    // Z周期完成：当S2=1且状态为黄灯(11)时，下一个状态将回到双红灯
+    // 即状态111 -> 000
+    And(a=S2, b=S1, out=andS2S1);
+    And(a=andS2S1, b=S0, out=state111); // Z黄灯状态
     
-    // PowerOn控制（Mux a/b均为1位，位宽匹配）
-    Mux(a=false, b=nextS2raw, sel=PowerOn, out=nextS2temp);
-    Mux(a=false, b=nextS1raw, sel=PowerOn, out=nextS1temp);
-    Mux(a=false, b=nextS0raw, sel=PowerOn, out=nextS0temp);
+    // 计时器启动条件：按钮已按下且处于Z黄灯状态
+    And(a=ButtonPressedReg, b=state111, out=startTimerCond);
+    And(a=startTimerCond, b=PowerOn, out=startTimer);
     
-    // 计时器模式锁定（TimerMode为1位信号）
-    DFF(in=TimerModenext, out=TimerMode);  // 1位
-    Mux(a=nextS2temp, b=S2, sel=TimerMode, out=nextS2);  // 1位→1位
-    Mux(a=nextS1temp, b=S1, sel=TimerMode, out=nextS1);
-    Mux(a=nextS0temp, b=S0, sel=TimerMode, out=nextS0);
+    // --- 按钮锁存逻辑 ---
+    Or(a=ButtonRisingEdge, b=ButtonPressedReg, out=BPor);
+    And(a=BPor, b=notTimerMode, out=BPand);
+    Or(a=BPand, b=ButtonRisingEdge, out=nextBPtemp);
+    And(a=nextBPtemp, b=PowerOn, out=nextBP);
     
-    // ================================================
-    // 2. 按钮检测与锁存（全1位信号，无位宽冲突）
-    // ================================================
-    DFF(in=Button, out=Buttonprev);  // 1位
-    Not(in=Buttonprev, out=Buttonprevnot);  // 1位
-    And(a=Button, b=Buttonprevnot, out=Buttontrig);  // 1位&1位→1位
+    // --- 计时器模式控制逻辑 ---
+    And(a=TimerMode, b=TimerZero, out=exitTimer);
+    Or(a=TimerMode, b=startTimer, out=stayOrStart);
+    Not(in=exitTimer, out=notExit);
+    And(a=stayOrStart, b=notExit, out=nextTimerMode);
     
-    SRFF(set=Buttontrig, reset=Timerend, q=Buttonreq, qn=Buttonreqnot);  // 1位输入输出
-    And(a=Buttonreq, b=PowerOn, out=ButtonPressed);  // 1位&1位→1位
+    // 计时器递减使能：计时器模式且计时器不为0
+    And(a=TimerMode, b=TimerNotZero, out=TimerDec);
     
-    // ================================================
-    // 3. 计时器控制（显式位宽转换，无隐式子总线访问）
-    // ================================================
-    // Z周期完成检测（1位信号级联）
-    And(a=S2, b=S1, out=S2S1);  // 1位&1位→1位
-    And(a=S2S1, b=S0, out=Zcycleend);  // 1位&1位→1位
-    And(a=Zcycleend, b=Buttonreq, out=Timerstart);  // 1位&1位→1位
+    // 计时器复位：启动计时器时复位到9
+    Mux(a=false, b=true, sel=startTimer, out=TimerReset);
     
-    // 计时器模式控制（全1位）
-    Or(a=TimerMode, b=Timerstart, out=TimerModehold);  // 1位&1位→1位
-    Not(in=Timerend, out=Timernotend);  // 1位
-    And(a=TimerModehold, b=Timernotend, out=TimerModenext);  // 1位&1位→1位
+    // --- 应用计时器模式到状态转移 ---
+    // 计时器模式下冻结状态机
+    Mux(a=nextS2normal, b=S2, sel=TimerMode, out=nextS2);
+    Mux(a=nextS1normal, b=S1, sel=TimerMode, out=nextS1);
+    Mux(a=nextS0normal, b=S0, sel=TimerMode, out=nextS0);
     
-    // 4位计数器（out=Timercnt为4位总线，与芯片定义匹配）
-    CounterDec(load=Timerstart, dec=TimerMode, reset=PowerOn, out=Timercnt);
+    // --- 交通灯输出逻辑 ---
+    // 根据状态输出X和Z的灯光
     
-    // 提取计时器4位（4位总线→1位信号，显式转换）
-    // 提取Timercnt第0位（T0）：4位→1位
-    Mux4(
-        a=false,
-        b=true,
-        c=false,
-        d=false,
-        sel=[Timercnt[1], Timercnt[0]],  // 4位总线的低2位作为sel（1位+1位）
-        out=T0
-    );
-    // 提取Timercnt第1位（T1）：4位→1位
-    Mux4(
-        a=false,
-        b=false,
-        c=true,
-        d=false,
-        sel=[Timercnt[1], Timercnt[0]],
-        out=T1
-    );
-    // 提取Timercnt第2位（T2）：4位→1位
-    Mux4(
-        a=false,
-        b=false,
-        c=false,
-        d=true,
-        sel=[Timercnt[3], Timercnt[2]],  // 4位总线的高2位作为sel
-        out=T2
-    );
-    // 提取Timercnt第3位（T3）：4位→1位
-    Mux4(
-        a=true,
-        b=false,
-        c=false,
-        d=false,
-        sel=[Timercnt[3], Timercnt[2]],
-        out=T3
-    );
+    // X灯控制逻辑 (当S2=0时控制X)
+    Mux(a=S1, b=false, sel=S2, out=xstate1);
+    Mux(a=S0, b=false, sel=S2, out=xstate0);
     
-    // 计时器结束检测（全1位信号）
-    Or(a=T0, b=T1, out=T0T1or);  // 1位
-    Or(a=T2, b=T3, out=T2T3or);  // 1位
-    Or(a=T0T1or, b=T2T3or, out=Timernotzero);  // 1位
-    Not(in=Timernotzero, out=Timerend);  // 1位
+    // Z灯控制逻辑 (当S2=1时控制Z)
+    Mux(a=false, b=S1, sel=S2, out=zstate1);
+    Mux(a=false, b=S0, sel=S2, out=zstate0);
     
-    // ================================================
-    // 4. 交通灯输出（全1位信号，无位宽冲突）
-    // ================================================
-    // 状态解码（1位信号级联）
-    And(a=notS2, b=notS1, out=state00pre);  // 1位
-    And(a=state00pre, b=notS0, out=state00);  // 000：1位
-    And(a=state00pre, b=S0, out=state01);    // 001：1位
+    // X灯输出: X[2]=红, X[1]=黄, X[0]=绿
+    Not(in=xstate1, out=Xrednormal);
+    Or(a=xstate0, b=false, out=Xambernormal);
+    Not(in=xstate0, out=notxstate0);
+    And(a=xstate1, b=notxstate0, out=Xgreennormal);
     
-    And(a=notS2, b=S1, out=state10pre);  // 1位
-    And(a=state10pre, b=notS0, out=state10);  // 010：1位
-    And(a=state10pre, b=S0, out=state11);    // 011：1位
+    // Z灯输出: Z[2]=红, Z[1]=黄, Z[0]=绿
+    Not(in=zstate1, out=Zrednormal);
+    Or(a=zstate0, b=false, out=Zambernormal);
+    Not(in=zstate0, out=notzstate0);
+    And(a=zstate1, b=notzstate0, out=Zgreennormal);
     
-    And(a=S2, b=notS1, out=state20pre);  // 1位
-    And(a=state20pre, b=notS0, out=state20);  // 100：1位
-    And(a=state20pre, b=S0, out=state21);    // 101：1位
+    // 应用计时器模式覆盖：计时器模式下，X和Z都是红灯
+    Mux(a=Xrednormal, b=true, sel=TimerMode, out=X[2]);
+    Mux(a=Xambernormal, b=false, sel=TimerMode, out=X[1]);
+    Mux(a=Xgreennormal, b=false, sel=TimerMode, out=X[0]);
     
-    And(a=S2, b=S1, out=state30pre);  // 1位
-    And(a=state30pre, b=notS0, out=state30);  // 110：1位
-    And(a=state30pre, b=S0, out=state31);    // 111：1位
+    Mux(a=Zrednormal, b=true, sel=TimerMode, out=Z[2]);
+    Mux(a=Zambernormal, b=false, sel=TimerMode, out=Z[1]);
+    Mux(a=Zgreennormal, b=false, sel=TimerMode, out=Z[0]);
     
-    // X灯态（1位输出，位宽匹配）
-    Or(a=state00, b=state20, out=Xred1);  // 1位
-    Or(a=Xred1, b=S2, out=Xred);  // X[2]：1位
-    Or(a=state01, b=state11, out=Xamber);  // X[1]：1位
-    And(a=state10, b=true, out=Xgreen);  // X[0]：1位
+    // --- Wait信号 ---
+    // Wait=1表示交通灯在正常序列中，不能过街
+    // Wait=0表示在计时模式，可以过街
+    Not(in=TimerMode, out=Wait);
     
-    // Z灯态（1位输出，位宽匹配）
-    Or(a=notS2, b=state20, out=Zred);  // Z[2]：1位
-    Or(a=state21, b=state31, out=Zamber);  // Z[1]：1位
-    And(a=state30, b=true, out=Zgreen);  // Z[0]：1位
+    // --- 7段数码管输出 ---
+    // 根据计时器值显示0-9
+    // 使用Decoder芯片将4位计时器值转换为7段显示
     
-    // 计时器模式强制RED（1位信号）
-    Mux(a=Xred, b=true, sel=TimerMode, out=X[2]);  // 1位
-    Mux(a=Xamber, b=false, sel=TimerMode, out=X[1]);
-    Mux(a=Xgreen, b=false, sel=TimerMode, out=X[0]);
-    Mux(a=Zred, b=true, sel=TimerMode, out=Z[2]);
-    Mux(a=Zamber, b=false, sel=TimerMode, out=Z[1]);
-    Mux(a=Zgreen, b=false, sel=TimerMode, out=Z[0]);
+    // 将4个计时器位连接为Decoder的输入
+    Decoder(in[0]=Timer0, in[1]=Timer1, in[2]=Timer2, in[3]=Timer3, 
+            a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
     
-    // ================================================
-    // 5. Wait信号与7段显示（位宽严格匹配）
-    // ================================================
-    Not(in=TimerMode, out=Wait);  // 1位→1位
+    // 根据8.jpg的段位顺序: C[6]=a, C[5]=b, C[4]=c, C[3]=d, C[2]=e, C[1]=f, C[0]=g
+    // 仅当计时器模式时输出数码管信号
+    And(a=segA, b=TimerMode, out=C[6]);
+    And(a=segB, b=TimerMode, out=C[5]);
+    And(a=segC, b=TimerMode, out=C[4]);
+    And(a=segD, b=TimerMode, out=C[3]);
+    And(a=segE, b=TimerMode, out=C[2]);
+    And(a=segF, b=TimerMode, out=C[1]);
+    And(a=segG, b=TimerMode, out=C[0]);
     
-    // 构造7段解码器输入（4位总线，显式拼接）
-    Mux4Way16(
-        a=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-        b=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],  // T0=1时
-        c=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0],  // T1=1时
-        d=[0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0],  // T2=1时
-        sel=[T3, T2, T1, T0],  // 4位1位信号→4位sel
-        out=decin
-    );
-    
-    // 7段解码器（in=4位总线，输出7个1位信号）
-    Decoder7Seg(in=decin, a=sega, b=segb, c=segc, d=segd, e=sege, f=segf, g=segg);
-    
-    // 段码输出（1位&1位→1位）
-    And(a=sega, b=TimerMode, out=C[0]);
-    And(a=segb, b=TimerMode, out=C[1]);
-    And(a=segc, b=TimerMode, out=C[2]);
-    And(a=segd, b=TimerMode, out=C[3]);
-    And(a=sege, b=TimerMode, out=C[4]);
-    And(a=segf, b=TimerMode, out=C[5]);
-    And(a=segg, b=TimerMode, out=C[6]);
-}
-
-// ================================================
-// 辅助芯片1：SR触发器（全1位信号）
-// ================================================
-CHIP SRFF {
-    IN set, reset;
-    OUT q, qn;
-    PARTS:
-    Nand(a=set, b=qn, out=q);
-    Nand(a=reset, b=q, out=qn);
-}
-
-// ================================================
-// 辅助芯片2：4位十进制递减计数器（4位总线，无位宽冲突）
-// ================================================
-CHIP CounterDec {
-    IN load, dec, reset;
-    OUT out[4];  // 4位总线输出
-    PARTS:
-    // 内部状态寄存器（4个1位DFF，组成4位总线）
-    DFF(in=next0, out=out[0]);
-    DFF(in=next1, out=out[1]);
-    DFF(in=next2, out=out[2]);
-    DFF(in=next3, out=out[3]);
-    
-    // 加载逻辑（1位信号控制，4位总线输出）
-    Mux(a=dec0, b=true, sel=load, out=load0);  // 1位
-    Mux(a=dec1, b=false, sel=load, out=load1); // 1位
-    Mux(a=dec2, b=false, sel=load, out=load2); // 1位
-    Mux(a=dec3, b=true, sel=load, out=load3);  // 1位
-    
-    // 复位逻辑（1位信号控制）
-    Mux(a=load0, b=false, sel=reset, out=next0);  // 1位
-    Mux(a=load1, b=false, sel=reset, out=next1);  // 1位
-    Mux(a=load2, b=false, sel=reset, out=next2);  // 1位
-    Mux(a=load3, b=false, sel=reset, out=next3);  // 1位
-    
-    // 递减逻辑（4位总线→4位总线，无位宽冲突）
-    // 4位计数器递减：9(1001)→8(1000)→...→0(0000)
-    And(a=out[0], b=not(out[1]), c=not(out[2]), d=not(out[3]), out=dec0trig);
-    And(a=not(out[0]), b=out[1], c=not(out[2]), d=not(out[3]), out=dec1trig);
-    And(a=not(out[0]), b=not(out[1]), c=out[2], d=not(out[3]), out=dec2trig);
-    And(a=not(out[0]), b=not(out[1]), c=not(out[2]), d=out[3], out=dec3trig);
-    
-    Not(in=out[0], out=notout0);
-    Not(in=out[1], out=notout1);
-    Not(in=out[2], out=notout2);
-    Not(in=out[3], out=notout3);
-    
-    Mux(a=out[0], b=notout0, sel=dec0trig, out=dec0);
-    Mux(a=out[1], b=notout1, sel=dec1trig, out=dec1);
-    Mux(a=out[2], b=notout2, sel=dec2trig, out=dec2);
-    Mux(a=out[3], b=notout3, sel=dec3trig, out=dec3);
-}
-
-// ================================================
-// 辅助芯片3：7段解码器（4位总线→7个1位信号）
-// ================================================
-CHIP Decoder7Seg {
-    IN in[4];  // 4位总线输入
-    OUT a, b, c, d, e, f, g;  // 1位输出
-    PARTS:
-    // 提取4位输入为1位信号（无隐式子总线访问）
-    And(a=in[0], b=true, out=in0);  // 1位
-    And(a=in[1], b=true, out=in1);  // 1位
-    And(a=in[2], b=true, out=in2);  // 1位
-    And(a=in[3], b=true, out=in3);  // 1位
-    
-    // 反相信号（1位）
-    Not(in=in0, out=notin0);
-    Not(in=in1, out=notin1);
-    Not(in=in2, out=notin2);
-    Not(in=in3, out=notin3);
-    
-    // 段码逻辑（全1位信号级联）
-    Or(a=notin3, b=in1, out=a1);
-    Or(a=a1, b=in0, out=a);
-    
-    Or(a=notin2, b=notin1, out=b1);
-    Or(a=b1, b=in0, out=b);
-    
-    Or(a=notin1, b=in0, out=c);
-    
-    Or(a=notin3, b=notin2, out=d1);
-    And(a=in1, b=notin0, out=d2);
-    Or(a=d1, b=d2, out=d);
-    
-    Or(a=notin2, b=notin0, out=e);
-    
-    Or(a=notin3, b=in2, out=f1);
-    Or(a=notin1, b=notin0, out=f2);
-    And(a=f1, b=f2, out=f);
-    
-    Or(a=notin3, b=in2, out=g1);
-    Or(a=in1, b=notin0, out=g2);
-    And(a=g1, b=g2, out=g);
-}
-
-// ================================================
-// 辅助芯片4：Mux4（4选1，1位输入输出，用于提取4位总线单比特）
-// ================================================
-CHIP Mux4 {
-    IN a, b, c, d;  // 4个1位输入
-    IN sel[2];      // 2位选择信号
-    OUT out;        // 1位输出
-    PARTS:
-    Mux(a=a, b=b, sel=sel[0], out=mux1);
-    Mux(a=c, d=d, sel=sel[0], out=mux2);
-    Mux(a=mux1, b=mux2, sel=sel[1], out=out);
-}
-
-// ================================================
-// 辅助芯片5：Mux4Way16（4选1，16位总线输入输出）
-// ================================================
-CHIP Mux4Way16 {
-    IN a[16], b[16], c[16], d[16];  // 4个16位输入
-    IN sel[4];                       // 4位选择信号
-    OUT out[16];                     // 16位输出
-    PARTS:
-    Mux16(a=a, b=b, sel=sel[0], out=mux1);
-    Mux16(a=c, b=d, sel=sel[1], out=mux2);
-    Mux16(a=mux1, b=mux2, sel=sel[2], out=mux3);
-    Mux16(a=mux3, b=d, sel=sel[3], out=out);
+    // --- ButtonPressed输出 ---
+    And(a=ButtonPressedReg, b=PowerOn, out=ButtonPressed);
 }
