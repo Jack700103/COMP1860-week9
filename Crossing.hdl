@@ -1,185 +1,83 @@
 CHIP Crossing {
     IN PowerOn, Button;
-    OUT ButtonPressed, Wait,
-        X[3], Z[3], C[7];
-    
+    OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+
     PARTS:
-    DFF(in=nextS2, out=S2);
-    DFF(in=nextS1, out=S1);
-    DFF(in=nextS0, out=S0);
-    
-    DFF(in=nextButtonReg, out=ButtonReg);
+    // 状态寄存器
+    DFF(in=nextS0, out=s0);
+    DFF(in=nextS1, out=s1);
 
-    DFF(in=nextTimer3, out=Timer3);
-    DFF(in=nextTimer2, out=Timer2);
-    DFF(in=nextTimer1, out=Timer1);
-    DFF(in=nextTimer0, out=Timer0);
-    
-    Not(in=S0, out=notS0);
-    Xor(a=S1, b=S0, out=xorS1S0);
-    And(a=S1, b=S0, out=andS1S0);
-    Xor(a=S2, b=andS1S0, out=xorS2);
-    
-    And(a=S2, b=S1, out=andS2S1);
-    And(a=andS2S1, b=S0, out=inTimerState);
-    
-    Not(in=S0, out=notS0z);
-    And(a=S2, b=S1, out=andS2S1z);
-    And(a=andS2S1z, b=notS0z, out=zCycleComplete);
-    
-    Not(in=inTimerState, out=notInTimerState);
-    And(a=notInTimerState, b=Button, out=buttonPressedNow);
-    Or(a=buttonPressedNow, b=ButtonReg, out=nextButtonRegTemp);
-    
-    And(a=inTimerState, b=timerIsZero, out=clearButton);
-    Not(in=clearButton, out=notClearButton);
-    And(a=nextButtonRegTemp, b=notClearButton, out=nextButtonReg);
-    
-    Mux(a=false, b=true, sel=ButtonReg, out=ButtonPressed);
-    
-    Not(in=inTimerState, out=Wait);
-    
-    Or(a=Timer3, b=Timer2, out=or32);
-    Or(a=Timer1, b=Timer0, out=or10);
-    Or(a=or32, b=or10, out=timerNotZero);
-    Not(in=timerNotZero, out=timerIsZero);
-    
-    Not(in=Timer0, out=notT0);
-    Not(in=Timer1, out=notT1);
-    Not(in=Timer2, out=notT2);
-    Not(in=Timer3, out=notT3);
+    // 状态译码
+    Not(in=s0, out=nots0);
+    Not(in=s1, out=nots1);
+    And(a=nots0, b=nots1, out=idle);        // 状态0：等待
+    And(a=s0, b=nots1, out=running);        // 状态1：灯运行
+    And(a=nots0, b=s1, out=countdown);      // 状态2：行人倒计时
 
-    Xor(a=Timer1, b=Timer0, out=borrow1);
-    And(a=Timer1, b=Timer0, out=andT1T0);
-    Not(in=andT1T0, out=notAndT1T0);
-    And(a=notAndT1T0, b=Timer0, out=nextTimer0Raw);
-    
-    Xor(a=Timer2, b=borrow1, out=borrow2);
-    And(a=Timer2, b=borrow1, out=andT2B1);
-    Not(in=andT2B1, out=notAndT2B1);
-    And(a=notAndT2B1, b=borrow1, out=nextTimer1Raw);
-    
-    Xor(a=Timer3, b=borrow2, out=borrow3);
-    And(a=Timer3, b=borrow2, out=andT3B2);
-    Not(in=andT3B2, out=notAndT3B2);
-    And(a=notAndT3B2, b=borrow2, out=nextTimer2Raw);
-    
-    And(a=ButtonReg, b=zCycleComplete, out=enterTimerState);
-    
-    Mux(a=nextTimer0Raw, b=true, sel=enterTimerState, out=nextTimer0Load);
-    Mux(a=nextTimer1Raw, b=false, sel=enterTimerState, out=nextTimer1Load);
-    Mux(a=nextTimer2Raw, b=false, sel=enterTimerState, out=nextTimer2Load);
-    Mux(a=notT3, b=true, sel=enterTimerState, out=nextTimer3Load);
-    
-    Mux(a=false, b=nextTimer0Load, sel=inTimerState, out=nextTimer0Final);
-    Mux(a=false, b=nextTimer1Load, sel=inTimerState, out=nextTimer1Final);
-    Mux(a=false, b=nextTimer2Load, sel=inTimerState, out=nextTimer2Final);
-    Mux(a=false, b=nextTimer3Load, sel=inTimerState, out=nextTimer3Final);
-    
-    Mux(a=nextTimer0Final, b=false, sel=PowerOn, out=nextTimer0);
-    Mux(a=nextTimer1Final, b=false, sel=PowerOn, out=nextTimer1);
-    Mux(a=nextTimer2Final, b=false, sel=PowerOn, out=nextTimer2);
-    Mux(a=nextTimer3Final, b=false, sel=PowerOn, out=nextTimer3);
-    
-    And(a=inTimerState, b=timerNotZero, out=stayInTimer);
-    
-    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2Normal);
-    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1Normal);
-    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0Normal);
-    
-    Mux(a=nextS2Normal, b=true, sel=enterTimerState, out=nextS2Temp);
-    Mux(a=nextS1Normal, b=true, sel=enterTimerState, out=nextS1Temp);
-    Mux(a=nextS0Normal, b=true, sel=enterTimerState, out=nextS0Temp);
-    
-    Mux(a=nextS2Temp, b=S2, sel=stayInTimer, out=nextS2);
-    Mux(a=nextS1Temp, b=S1, sel=stayInTimer, out=nextS1);
-    Mux(a=nextS0Temp, b=S0, sel=stayInTimer, out=nextS0);
-    
-    Mux(a=S1, b=false, sel=S2, out=xstate1);
-    Mux(a=S0, b=false, sel=S2, out=xstate0);
-    
-    Mux(a=false, b=S1, sel=S2, out=zstate1);
-    Mux(a=false, b=S0, sel=S2, out=zstate0);
-    
-    Mux(a=xstate1, b=true, sel=inTimerState, out=xstate1Final);
-    Mux(a=xstate0, b=false, sel=inTimerState, out=xstate0Final);
-    Mux(a=zstate1, b=true, sel=inTimerState, out=zstate1Final);
-    Mux(a=zstate0, b=false, sel=inTimerState, out=zstate0Final);
-    
-    Not(in=xstate1Final, out=X[2]);
-    Or(a=xstate0Final, b=false, out=X[1]);
-    Not(in=xstate0Final, out=notxstate0);
-    And(a=xstate1Final, b=notxstate0, out=X[0]);
-    
-    Not(in=zstate1Final, out=Z[2]);
-    Or(a=zstate0Final, b=false, out=Z[1]);
-    Not(in=zstate0Final, out=notzstate0);
-    And(a=zstate1Final, b=notzstate0, out=Z[0]);
-    
-    Not(in=Timer3, out=nT3);
-    Not(in=Timer2, out=nT2);
-    Not(in=Timer1, out=nT1);
-    Not(in=Timer0, out=nT0);
-    
-    And(a=nT3, b=nT2, out=a320);
-    And(a=nT1, b=nT0, out=a100);
-    And(a=a320, b=a100, out=is0);
-    
-    And(a=nT3, b=nT2, out=a321);
-    And(a=nT1, b=Timer0, out=a101);
-    And(a=a321, b=a101, out=is1);
-    
-    And(a=nT3, b=nT2, out=a322);
-    And(a=Timer1, b=nT0, out=a102);
-    And(a=a322, b=a102, out=is2);
-    
-    And(a=nT3, b=nT2, out=a323);
-    And(a=Timer1, b=Timer0, out=a103);
-    And(a=a323, b=a103, out=is3);
-    
-    And(a=nT3, b=Timer2, out=a324);
-    And(a=nT1, b=nT0, out=a104);
-    And(a=a324, b=a104, out=is4);
-    
-    And(a=nT3, b=Timer2, out=a325);
-    And(a=nT1, b=Timer0, out=a105);
-    And(a=a325, b=a105, out=is5);
-    
-    And(a=nT3, b=Timer2, out=a326);
-    And(a=Timer1, b=nT0, out=a106);
-    And(a=a326, b=a106, out=is6);
-    
-    And(a=nT3, b=Timer2, out=a327);
-    And(a=Timer1, b=Timer0, out=a107);
-    And(a=a327, b=a107, out=is7);
-    
-    And(a=Timer3, b=nT2, out=a328);
-    And(a=nT1, b=nT0, out=a108);
-    And(a=a328, b=a108, out=is8);
-    
-    And(a=Timer3, b=nT2, out=a329);
-    And(a=nT1, b=Timer0, out=a109);
-    And(a=a329, b=a109, out=is9);
+    // 按钮保持
+    DFF(in=nextFlag, out=flag);
+    And(a=idle, b=Button, out=setFlag);
+    And(a=countdown, b=timerDone, out=clearFlag);
+    Not(in=clearFlag, out=notClear);
+    And(a=flag, b=notClear, out=flagHold);
+    Or(a=setFlag, b=flagHold, out=flagUpdate);
+    Mux(a=flagUpdate, b=false, sel=PowerOn, out=nextFlag);
 
-    Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
-           in[4]=is6, in[5]=is7, in[6]=is8, in[7]=is9, out=C[6]);
+    // 按钮显示
+    Or(a=flag, b=false, out=ButtonPressed);
 
-    Or8Way(in[0]=is0, in[1]=is1, in[2]=is2, in[3]=is3,
-           in[4]=is4, in[5]=is7, in[6]=is8, in[7]=is9, out=C[5]);
+    // 等待信号
+    Or(a=running, b=false, out=Wait);
 
-    Or8Way(in[0]=is0, in[1]=is1, in[2]=is3, in[3]=is4,
-           in[4]=is5, in[5]=is6, in[6]=is7, in[7]=is8, out=cpart1);
-    Or(a=cpart1, b=is9, out=C[4]);
+    // 调用主控制器
+    JunctionController(PowerOn=PowerOn, X=Xj[3], Z=Zj[3]);
 
-    Or8Way(in[0]=is0, in[1]=is2, in[2]=is3, in[3]=is5,
-           in[4]=is6, in[5]=is8, in[6]=is9, in[7]=false, out=C[3]);
+    // 倒计时计数器
+    CounterDec(dec=countdown, reset=idle, out[0]=c0, out[1]=c1, out[2]=c2, out[3]=c3);
+    Or(a=c0, b=c1, out=t0);
+    Or(a=c2, b=c3, out=t1);
+    Or(a=t0, b=t1, out=tSet);
+    Not(in=tSet, out=timerDone);
 
-    Or8Way(in[0]=is0, in[1]=is2, in[2]=is6, in[3]=is8,
-           in[4]=false, in[5]=false, in[6]=false, in[7]=false, out=C[2]);
+    // 七段译码
+    Decoder(in[0]=c0, in[1]=c1, in[2]=c2, in[3]=c3,
+            a=Ca, b=Cb, c=Cc, d=Cd, e=Ce, f=Cf, g=Cg);
 
-    Or8Way(in[0]=is0, in[1]=is4, in[2]=is5, in[3]=is6,
-           in[4]=is8, in[5]=is9, in[6]=false, in[7]=false, out=C[1]);
+    Mux(a=Ca, b=false, sel=countdown, out=C[0]);
+    Mux(a=Cb, b=false, sel=countdown, out=C[1]);
+    Mux(a=Cc, b=false, sel=countdown, out=C[2]);
+    Mux(a=Cd, b=false, sel=countdown, out=C[3]);
+    Mux(a=Ce, b=false, sel=countdown, out=C[4]);
+    Mux(a=Cf, b=false, sel=countdown, out=C[5]);
+    Mux(a=Cg, b=false, sel=countdown, out=C[6]);
 
-    Or8Way(in[0]=is2, in[1]=is3, in[2]=is4, in[3]=is5,
-           in[4]=is6, in[5]=is8, in[6]=is9, in[7]=false, out=C[0]);
+    // 红灯判断
+    Not(in=Xj[0], out=nX0);
+    Not(in=Xj[1], out=nX1);
+    And(a=Xj[2], b=nX1, out=tX);
+    And(a=tX, b=nX0, out=XR);
+    Not(in=Zj[0], out=nZ0);
+    Not(in=Zj[1], out=nZ1);
+    And(a=Zj[2], b=nZ1, out=tZ);
+    And(a=tZ, b=nZ0, out=ZR);
+    And(a=XR, b=ZR, out=done);
+
+    // 状态转移逻辑
+    And(a=idle, b=flag, out=goRun);
+    And(a=running, b=done, out=goCount);
+    And(a=countdown, b=timerDone, out=goIdle);
+
+    // next 状态
+    Or(a=goRun, b=goCount, out=nexts0temp);
+    Or(a=goCount, b=goIdle, out=nexts1temp);
+    Mux(a=nexts0temp, b=true, sel=PowerOn, out=nextS0);
+    Mux(a=nexts1temp, b=false, sel=PowerOn, out=nextS1);
+
+    // 输出灯
+    Mux(a=Xj[0], b=false, sel=countdown, out=X[0]);
+    Mux(a=Xj[1], b=false, sel=countdown, out=X[1]);
+    Mux(a=Xj[2], b=true,  sel=countdown, out=X[2]);
+    Mux(a=Zj[0], b=false, sel=countdown, out=Z[0]);
+    Mux(a=Zj[1], b=false, sel=countdown, out=Z[1]);
+    Mux(a=Zj[2], b=true,  sel=countdown, out=Z[2]);
 }
