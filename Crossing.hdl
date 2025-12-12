@@ -1,90 +1,204 @@
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+    
     PARTS:
-    DFF(in=nextS0, out=s0);
-    DFF(in=nextS1, out=s1);
-    DFF(in=nextButtonFlag, out=buttonFlag);
-    Not(in=s0, out=notS0);
-    Not(in=s1, out=notS1);
-    And(a=notS0, b=notS1, out=state0);
-    And(a=s0, b=notS1, out=state1);
-    And(a=notS0, b=s1, out=state2);
-    DFF(in=finalNextS2, out=S2);
-    DFF(in=finalNextS1, out=S1);
-    DFF(in=finalNextS0, out=S0);
-    Not(in=S0, out=notS0j);
-    Xor(a=S1, b=S0, out=xorS1S0);
-    And(a=S1, b=S0, out=andS1S0);
-    Xor(a=S2, b=andS1S0, out=xorS2);
-    Mux(a=false, b=xorS2, sel=PowerOn, out=normalNextS2);
-    Mux(a=false, b=xorS1S0, sel=PowerOn, out=normalNextS1);
-    Mux(a=false, b=notS0j, sel=PowerOn, out=normalNextS0);
-    Mux(a=false, b=S1, sel=S2, out=xState1);
-    Mux(a=false, b=S0, sel=S2, out=xState0);
-    Mux(a=S1, b=false, sel=S2, out=zState1);
-    Mux(a=S0, b=false, sel=S2, out=zState0);
-    Not(in=xState1, out=Xjunc2);
-    Or(a=xState0, b=false, out=Xjunc1);
-    Not(in=xState0, out=notXState0);
-    And(a=xState1, b=notXState0, out=Xjunc0);
-    Not(in=zState1, out=Zjunc2);
-    Or(a=zState0, b=false, out=Zjunc1);
-    Not(in=zState0, out=notZState0);
-    And(a=zState1, b=notZState0, out=Zjunc0);
-    Not(in=Xjunc1, out=notXjunc1);
-    Not(in=Xjunc0, out=notXjunc0);
-    And(a=Xjunc2, b=notXjunc1, out=xIsRedPart);
-    And(a=xIsRedPart, b=notXjunc0, out=xIsRed);
-    Not(in=Zjunc1, out=notZjunc1);
-    Not(in=Zjunc0, out=notZjunc0);
-    And(a=Zjunc2, b=notZjunc1, out=zIsRedPart);
-    And(a=zIsRedPart, b=notZjunc0, out=zIsRed);
-    And(a=xIsRed, b=zIsRed, out=cycleComplete);
-    And(a=cycleComplete, b=S2, out=conditionedCycleComplete);
-    And(a=state1, b=conditionedCycleComplete, out=toState2);
-    And(a=state1, b=conditionedCycleComplete, out=pauseExtra);
-    Or(a=state2, b=pauseExtra, out=pause);
-    Mux(a=normalNextS2, b=S2, sel=pause, out=finalNextS2);
-    Mux(a=normalNextS1, b=S1, sel=pause, out=finalNextS1);
-    Mux(a=normalNextS0, b=S0, sel=pause, out=finalNextS0);
-    And(a=state0, b=Button, out=setButtonFlag);
-    And(a=state2, b=timerDone, out=clearButtonFlag);
-    Or(a=setButtonFlag, b=buttonFlag, out=buttonFlagBeforeClear);
-    Not(in=clearButtonFlag, out=notClearButtonFlag);
-    And(a=buttonFlagBeforeClear, b=notClearButtonFlag, out=buttonFlagTemp);
-    Not(in=PowerOn, out=notPowerOn);
-    Mux(a=buttonFlagTemp, b=false, sel=notPowerOn, out=nextButtonFlag);
-    Or(a=buttonFlag, b=false, out=ButtonPressed);
-    Or(a=state1, b=false, out=Wait);
-    Mux(a=Xjunc0, b=false, sel=pause, out=Z[0]);
-    Mux(a=Xjunc1, b=false, sel=pause, out=Z[1]);
-    Mux(a=Xjunc2, b=true, sel=pause, out=Z[2]);
-    Mux(a=Zjunc0, b=false, sel=pause, out=X[0]);
-    Mux(a=Zjunc1, b=false, sel=pause, out=X[1]);
-    Mux(a=Zjunc2, b=true, sel=pause, out=X[2]);
-    Not(in=state2, out=notState2);
-    Or(a=notPowerOn, b=notState2, out=timerReset);
-    CounterDec(dec=state2, reset=timerReset, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
-    Or(a=count0, b=count1, out=anyBit01);
-    Or(a=count2, b=count3, out=anyBit23);
-    Or(a=anyBit01, b=anyBit23, out=anyBitSet);
-    Not(in=anyBitSet, out=timerDone);
-    Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, a=decA, b=decB, c=decC, d=decD, e=decE, f=decF, g=decG);
-    Mux(a=false, b=decA, sel=state2, out=C[0]);
-    Mux(a=false, b=decB, sel=state2, out=C[1]);
-    Mux(a=false, b=decC, sel=state2, out=C[2]);
-    Mux(a=false, b=decD, sel=state2, out=C[3]);
-    Mux(a=false, b=decE, sel=state2, out=C[4]);
-    Mux(a=false, b=decF, sel=state2, out=C[5]);
-    Mux(a=false, b=decG, sel=state2, out=C[6]);
-    And(a=state0, b=buttonFlag, out=toState1);
-    Not(in=conditionedCycleComplete, out=notCycleComplete);
-    And(a=state1, b=notCycleComplete, out=stayState1);
-    Or(a=toState1, b=stayState1, out=nextS0Temp);
-    Not(in=timerDone, out=notTimerDone);
-    And(a=state2, b=notTimerDone, out=stayState2);
-    Or(a=toState2, b=stayState2, out=nextS1Temp);
-    Mux(a=nextS0Temp, b=false, sel=notPowerOn, out=nextS0);
-    Mux(a=nextS1Temp, b=false, sel=notPowerOn, out=nextS1);
+    // ========== 主控制器状态机 ==========
+    // 状态定义: 
+    // 000: 初始状态，两个灯都红
+    // 001: X灯正常循环
+    // 010: Z灯正常循环
+    // 011: 等待行人过街状态
+    // 100: 计时状态
+    
+    DFF(in=nextState0, out=state0);
+    DFF(in=nextState1, out=state1);
+    DFF(in=nextState2, out=state2);
+    
+    // 解码当前状态
+    Not(in=state0, out=notS0);
+    Not(in=state1, out=notS1);
+    Not(in=state2, out=notS2);
+    
+    And(a=notS0, b=notS1, c=notS2, out=stateInit);       // 000
+    And(a=state0, b=notS1, c=notS2, out=stateXCycle);    // 001
+    And(a=notS0, b=state1, c=notS2, out=stateZCycle);    // 010
+    And(a=state0, b=state1, c=notS2, out=stateWait);     // 011
+    And(a=notS0, b=notS1, c=state2, out=stateTimer);     // 100
+    
+    // ========== 交通灯控制器 ==========
+    // 子状态机控制单个交通灯序列
+    // 状态: 00=RED, 01=RED/AMBER, 10=GREEN, 11=AMBER
+    
+    DFF(in=nextXState0, out=xState0);
+    DFF(in=nextXState1, out=xState1);
+    DFF(in=nextZState0, out=zState0);
+    DFF(in=nextZState1, out=zState1);
+    
+    // X灯状态转换逻辑
+    And(a=stateXCycle, b=PowerOn, out=xActive);
+    Not(in=xState0, out=notX0);
+    Not(in=xState1, out=notX1);
+    
+    // X灯状态机: 00→01→10→11→00
+    Xor(a=xState0, b=xState1, out=xNext0Temp);
+    And(a=xState0, b=xState1, out=xCarry);
+    Xor(a=xState1, b=xCarry, out=xNext1Temp);
+    
+    // 只在X灯活动时更新状态
+    Mux(a=xState0, b=xNext0Temp, sel=xActive, out=xNext0);
+    Mux(a=xState1, b=xNext1Temp, sel=xActive, out=xNext1);
+    
+    // Z灯状态转换逻辑
+    And(a=stateZCycle, b=PowerOn, out=zActive);
+    Not(in=zState0, out=notZ0);
+    Not(in=zState1, out=notZ1);
+    
+    // Z灯状态机: 00→01→10→11→00
+    Xor(a=zState0, b=zState1, out=zNext0Temp);
+    And(a=zState0, b=zState1, out=zCarry);
+    Xor(a=zState1, b=zCarry, out=zNext1Temp);
+    
+    // 只在Z灯活动时更新状态
+    Mux(a=zState0, b=zNext0Temp, sel=zActive, out=zNext0);
+    Mux(a=zState1, b=zNext1Temp, sel=zActive, out=zNext1);
+    
+    // 复位逻辑
+    Mux(a=xNext0, b=false, sel=PowerOn, out=finalXNext0);
+    Mux(a=xNext1, b=false, sel=PowerOn, out=finalXNext1);
+    Mux(a=zNext0, b=false, sel=PowerOn, out=finalZNext0);
+    Mux(a=zNext1, b=false, sel=PowerOn, out=finalZNext1);
+    
+    // 交通灯输出编码
+    // X灯输出: X[2]=RED, X[1]=AMBER, X[0]=GREEN
+    // 状态到灯光的映射:
+    // 00(0): RED=1, AMBER=0, GREEN=0 (100)
+    // 01(1): RED=1, AMBER=1, GREEN=0 (110)
+    // 10(2): RED=0, AMBER=0, GREEN=1 (001)
+    // 11(3): RED=0, AMBER=1, GREEN=0 (010)
+    
+    // X灯输出逻辑
+    And(a=notX0, b=notX1, out=xRedState);      // 00
+    And(a=xState0, b=notX1, out=xRedAmber);    // 01
+    And(a=notX0, b=xState1, out=xGreen);       // 10
+    And(a=xState0, b=xState1, out=xAmber);     // 11
+    
+    Or(a=xRedState, b=xRedAmber, out=X[2]);    // RED灯
+    Or(a=xRedAmber, b=xAmber, out=X[1]);       // AMBER灯
+    Or(a=false, b=xGreen, out=X[0]);           // GREEN灯
+    
+    // Z灯输出逻辑
+    And(a=notZ0, b=notZ1, out=zRedState);      // 00
+    And(a=zState0, b=notZ1, out=zRedAmber);    // 01
+    And(a=notZ0, b=zState1, out=zGreen);       // 10
+    And(a=zState0, b=zState1, out=zAmber);     // 11
+    
+    Or(a=zRedState, b=zRedAmber, out=Z[2]);    // RED灯
+    Or(a=zRedAmber, b=zAmber, out=Z[1]);       // AMBER灯
+    Or(a=false, b=zGreen, out=Z[0]);           // GREEN灯
+    
+    // ========== 按钮检测逻辑 ==========
+    DFF(in=nextButtonReg, out=buttonReg);
+    
+    // 按钮检测：在非计时状态下按下按钮
+    And(a=Button, b=notS2, out=buttonDetected);
+    Or(a=buttonDetected, b=buttonReg, out=buttonSet);
+    
+    // 在计时结束时清除按钮标志
+    And(a=stateTimer, b=timerDone, out=buttonClear);
+    Not(in=buttonClear, out=notButtonClear);
+    
+    And(a=buttonSet, b=notButtonClear, out=buttonTemp);
+    Mux(a=buttonTemp, b=false, sel=PowerOn, out=nextButtonReg);
+    Or(a=buttonReg, b=false, out=ButtonPressed);
+    
+    // ========== 计时器逻辑 ==========
+    // 9到0的倒计时
+    CounterDec(dec=stateTimer, reset=resetTimer, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
+    
+    // 计时器复位条件
+    Or(a=notPowerOn, b=notStateTimer, out=resetTimer);
+    
+    // 计时完成检测（当计数为0时）
+    Not(in=count0, out=notCount0);
+    Not(in=count1, out=notCount1);
+    Not(in=count2, out=notCount2);
+    Not(in=count3, out=notCount3);
+    
+    And(a=notCount0, b=notCount1, c=notCount2, d=notCount3, out=timerDone);
+    
+    // ========== 7段显示解码 ==========
+    Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, 
+            a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
+    
+    // 根据8.jpg的映射关系重排段序
+    // 原顺序: a=下横, e=上横, b=中横, c=右下竖, d=左上竖, f=右上竖, g=左下竖
+    // 我们需要映射到C[0..6]
+    // 假设C[0]=a, C[1]=b, C[2]=c, C[3]=d, C[4]=e, C[5]=f, C[6]=g
+    
+    Mux(a=false, b=segA, sel=stateTimer, out=C[0]);  // a段
+    Mux(a=false, b=segB, sel=stateTimer, out=C[1]);  // b段
+    Mux(a=false, b=segC, sel=stateTimer, out=C[2]);  // c段
+    Mux(a=false, b=segD, sel=stateTimer, out=C[3]);  // d段
+    Mux(a=false, b=segE, sel=stateTimer, out=C[4]);  // e段
+    Mux(a=false, b=segF, sel=stateTimer, out=C[5]);  // f段
+    Mux(a=false, b=segG, sel=stateTimer, out=C[6]);  // g段
+    
+    // ========== 主状态机转换逻辑 ==========
+    // 条件检测
+    And(a=xRedState, b=zRedState, out=bothRed);
+    And(a=bothRed, b=buttonReg, out=pedestrianRequest);
+    
+    // 状态转换
+    // 初始状态 → X灯循环
+    And(a=stateInit, b=PowerOn, out=toXCycle);
+    
+    // X灯循环完成 → Z灯循环
+    And(a=stateXCycle, b=xRedState, out=xCycleDone);
+    
+    // Z灯循环完成 → 检查是否需要等待行人
+    And(a=stateZCycle, b=zRedState, out=zCycleDone);
+    
+    // 等待状态 → 计时状态
+    And(a=stateWait, b=true, out=toTimer);
+    
+    // 计时完成 → 初始状态
+    And(a=stateTimer, b=timerDone, out=timerComplete);
+    
+    // 主状态机逻辑
+    // 下一状态0
+    Or(a=stateInit, b=stateWait, out=nextS0Temp1);
+    Or(a=nextS0Temp1, b=stateTimer, out=nextS0Temp2);
+    Mux(a=nextS0Temp2, b=toXCycle, sel=PowerOn, out=nextS0Temp3);
+    Mux(a=nextS0Temp3, b=false, sel=PowerOn, out=nextState0);
+    
+    // 下一状态1
+    Or(a=stateZCycle, b=stateWait, out=nextS1Temp1);
+    Mux(a=false, b=nextS1Temp1, sel=PowerOn, out=nextS1Temp2);
+    Mux(a=nextS1Temp2, b=false, sel=PowerOn, out=nextState1);
+    
+    // 下一状态2
+    Mux(a=false, b=stateTimer, sel=PowerOn, out=nextS2Temp1);
+    Mux(a=nextS2Temp1, b=false, sel=PowerOn, out=nextState2);
+    
+    // 特殊：当Z灯循环完成且有行人请求时，进入等待状态
+    And(a=stateZCycle, b=zCycleDone, c=pedestrianRequest, out=enterWait);
+    
+    // 处理进入等待状态的逻辑
+    Mux(a=nextState0, b=true, sel=enterWait, out=finalNextS0);
+    Mux(a=nextState1, b=true, sel=enterWait, out=finalNextS1);
+    
+    // Wait信号输出
+    Not(in=stateTimer, out=notInTimer);
+    And(a=stateWait, b=notInTimer, out=Wait);
+    
+    // 最终交通灯输出覆盖
+    // 在计时状态，两个灯都设为红
+    Mux(a=X[0], b=false, sel=stateTimer, out=finalX0);
+    Mux(a=X[1], b=false, sel=stateTimer, out=finalX1);
+    Mux(a=X[2], b=true, sel=stateTimer, out=finalX2);
+    
+    Mux(a=Z[0], b=false, sel=stateTimer, out=finalZ0);
+    Mux(a=Z[1], b=false, sel=stateTimer, out=finalZ1);
+    Mux(a=Z[2], b=true, sel=stateTimer, out=finalZ2);
 }
