@@ -7,7 +7,9 @@ CHIP Crossing {
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     PARTS:
     
-    // --- 状态寄存器 ---
+    // --- 主状态机 (5个状态) ---
+    // 状态编码: S2=0表示X周期, S2=1表示Z周期
+    // S1,S0: 00=红, 01=红黄, 10=绿, 11=黄
     DFF(in=nextS2, out=S2);
     DFF(in=nextS1, out=S1);
     DFF(in=nextS0, out=S0);
@@ -16,16 +18,6 @@ CHIP Crossing {
     Not(in=S0, out=notS0);
     Not(in=S1, out=notS1);
     Not(in=S2, out=notS2);
-    
-    // --- 状态转移逻辑 ---
-    Xor(a=S1, b=S0, out=xorS1S0);
-    And(a=S1, b=S0, out=andS1S0);
-    Xor(a=S2, b=andS1S0, out=xorS2);
-    
-    // 正常模式下的下一状态
-    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2normal);
-    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1normal);
-    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0normal);
     
     // --- 计时器模式控制 ---
     DFF(in=nextTimerMode, out=TimerMode);
@@ -39,22 +31,36 @@ CHIP Crossing {
     // ButtonPressed寄存器
     DFF(in=nextBP, out=ButtonPressedReg);
     
+    // --- 状态转移逻辑 ---
+    // 正常状态转移 (来自JunctionController)
+    Xor(a=S1, b=S0, out=xorS1S0);
+    And(a=S1, b=S0, out=andS1S0);
+    Xor(a=S2, b=andS1S0, out=xorS2);
+    
+    // 正常模式下的下一状态
+    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2normal);
+    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1normal);
+    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0normal);
+    
     // --- 计时器模块 ---
-    // 正确连接CounterDec的输出到4个单比特信号
+    // 4位计数器，从9倒数到0
+    // 当进入计时器模式时加载9，然后在每个时钟周期递减
     CounterDec(dec=TimerDec, reset=TimerReset, out[0]=Timer0, out[1]=Timer1, out[2]=Timer2, out[3]=Timer3);
     
-    // 检查计时器是否为0（0000）
+    // 检查计时器是否为0 (0000)
     Or(a=Timer0, b=Timer1, out=or01);
     Or(a=Timer2, b=Timer3, out=or23);
     Or(a=or01, b=or23, out=TimerNotZero);
     Not(in=TimerNotZero, out=TimerZero);
     
     // --- 检测Z周期完成 ---
-    DFF(in=S2, out=S2prev);
-    And(a=S2prev, b=notS2, out=S2falling);
+    // Z周期完成：当S2=1且状态为黄灯(11)时，下一个状态将回到双红灯
+    // 即状态111 -> 000
+    And(a=S2, b=S1, out=andS2S1);
+    And(a=andS2S1, b=S0, out=state111); // Z黄灯状态
     
-    // 计时器启动条件：按钮已按下且Z周期完成
-    And(a=ButtonPressedReg, b=S2falling, out=startTimerCond);
+    // 计时器启动条件：按钮已按下且处于Z黄灯状态
+    And(a=ButtonPressedReg, b=state111, out=startTimerCond);
     And(a=startTimerCond, b=PowerOn, out=startTimer);
     
     // --- 按钮锁存逻辑 ---
@@ -76,30 +82,35 @@ CHIP Crossing {
     Mux(a=false, b=true, sel=startTimer, out=TimerReset);
     
     // --- 应用计时器模式到状态转移 ---
+    // 计时器模式下冻结状态机
     Mux(a=nextS2normal, b=S2, sel=TimerMode, out=nextS2);
     Mux(a=nextS1normal, b=S1, sel=TimerMode, out=nextS1);
     Mux(a=nextS0normal, b=S0, sel=TimerMode, out=nextS0);
     
     // --- 交通灯输出逻辑 ---
+    // 根据状态输出X和Z的灯光
+    
+    // X灯控制逻辑 (当S2=0时控制X)
     Mux(a=S1, b=false, sel=S2, out=xstate1);
     Mux(a=S0, b=false, sel=S2, out=xstate0);
     
+    // Z灯控制逻辑 (当S2=1时控制Z)
     Mux(a=false, b=S1, sel=S2, out=zstate1);
     Mux(a=false, b=S0, sel=S2, out=zstate0);
     
-    // X灯输出
+    // X灯输出: X[2]=红, X[1]=黄, X[0]=绿
     Not(in=xstate1, out=Xrednormal);
     Or(a=xstate0, b=false, out=Xambernormal);
     Not(in=xstate0, out=notxstate0);
     And(a=xstate1, b=notxstate0, out=Xgreennormal);
     
-    // Z灯输出
+    // Z灯输出: Z[2]=红, Z[1]=黄, Z[0]=绿
     Not(in=zstate1, out=Zrednormal);
     Or(a=zstate0, b=false, out=Zambernormal);
     Not(in=zstate0, out=notzstate0);
     And(a=zstate1, b=notzstate0, out=Zgreennormal);
     
-    // 应用计时器模式覆盖
+    // 应用计时器模式覆盖：计时器模式下，X和Z都是红灯
     Mux(a=Xrednormal, b=true, sel=TimerMode, out=X[2]);
     Mux(a=Xambernormal, b=false, sel=TimerMode, out=X[1]);
     Mux(a=Xgreennormal, b=false, sel=TimerMode, out=X[0]);
@@ -109,14 +120,19 @@ CHIP Crossing {
     Mux(a=Zgreennormal, b=false, sel=TimerMode, out=Z[0]);
     
     // --- Wait信号 ---
+    // Wait=1表示交通灯在正常序列中，不能过街
+    // Wait=0表示在计时模式，可以过街
     Not(in=TimerMode, out=Wait);
     
     // --- 7段数码管输出 ---
-    // 将4个单比特计时器信号作为Decoder的输入
-    // 注意：Decoder期望一个4位输入，我们使用正确的语法连接每个位
+    // 根据计时器值显示0-9
+    // 使用Decoder芯片将4位计时器值转换为7段显示
+    
+    // 将4个计时器位连接为Decoder的输入
     Decoder(in[0]=Timer0, in[1]=Timer1, in[2]=Timer2, in[3]=Timer3, 
             a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
     
+    // 根据8.jpg的段位顺序: C[6]=a, C[5]=b, C[4]=c, C[3]=d, C[2]=e, C[1]=f, C[0]=g
     // 仅当计时器模式时输出数码管信号
     And(a=segA, b=TimerMode, out=C[6]);
     And(a=segB, b=TimerMode, out=C[5]);
