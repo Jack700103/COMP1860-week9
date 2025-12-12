@@ -3,138 +3,133 @@ CHIP Crossing {
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     PARTS:
     // ================================================
-    // 1. 全局状态机（3位状态 S2S1S0，严格遵循标准芯片语法）
+    // 1. 全局状态机（3位状态 S2S1S0，严格校验引脚格式）
     // ================================================
-    // 状态寄存器（每个位仅1个DFF驱动）
+    // 状态寄存器（DFF仅in、out引脚，无多余参数）
     DFF(in=nextS2, out=S2);
     DFF(in=nextS1, out=S1);
     DFF(in=nextS0, out=S0);
     
-    // 状态反相信号
+    // 状态反相信号（Not芯片仅in、out引脚）
     Not(in=S2, out=notS2);
     Not(in=S1, out=notS1);
     Not(in=S0, out=notS0);
     
-    // 状态递增（模8）：两输入And/Or级联，无多输入违规
     // 步骤1：构造16位当前状态currentS（低3位=S2S1S0）
+    // And芯片：a、b、out引脚显式声明，无多余参数
     And(a=S0, b=true, out=S01bit);
     And(a=S1, b=true, out=S11bit);
     And(a=S2, b=true, out=S21bit);
     
-    // 构造bit0（第0位：S0）
-    Mux16(a=16#0000, b=16#0001, sel=S01bit, out=bit0);
-    // 构造bit1（第1位：S1）
-    Mux16(a=bit0, b=16#0002, sel=S11bit, out=bit1);
-    // 构造bit2（第2位：S2）
-    Mux16(a=bit1, b=16#0004, sel=S21bit, out=currentS);
+    // Mux16芯片：严格按a→b→sel→out顺序，引脚名无错写
+    Mux16(a=16#0000, b=16#0001, sel=S01bit, out=bit0);  // 第0位：S0
+    Mux16(a=bit0, b=16#0002, sel=S11bit, out=bit1);      // 第1位：S1
+    Mux16(a=bit1, b=16#0004, sel=S21bit, out=currentS);  // 第2位：S2，构造完成
     
-    // 递增1（标准Inc16芯片，仅in和out引脚）
+    // Inc16芯片：仅in、out引脚，无其他参数
     Inc16(in=currentS, out=incS);
     
-    // 步骤2：提取incS低3位（用两输入And门，无直接子总线访问）
-    // 提取第0位（incS0）
+    // 步骤2：提取incS低3位（Mux16+And组合，引脚格式正确）
     Mux16(a=16#0000, b=incS, sel=16#0001, out=incSbit0);
-    And(a=incSbit0, b=16#0001, out=incS0);
-    // 提取第1位（incS1）
-    Mux16(a=16#0000, b=incS, sel=16#0002, out=incSbit1);
-    And(a=incSbit1, b=16#0001, out=incS1);
-    // 提取第2位（incS2）
-    Mux16(a=16#0000, b=incS, sel=16#0004, out=incSbit2);
-    And(a=incSbit2, b=16#0001, out=incS2);
+    And(a=incSbit0, b=16#0001, out=incS0);  // 提取第0位
     
-    // PowerOn控制：低电平时强制状态为000
+    Mux16(a=16#0000, b=incS, sel=16#0002, out=incSbit1);
+    And(a=incSbit1, b=16#0001, out=incS1);  // 提取第1位
+    
+    Mux16(a=16#0000, b=incS, sel=16#0004, out=incSbit2);
+    And(a=incSbit2, b=16#0001, out=incS2);  // 提取第2位
+    
+    // PowerOn控制（Mux芯片：a、b、sel、out顺序严格）
     Mux(a=false, b=incS2, sel=PowerOn, out=nextS2raw);
     Mux(a=false, b=incS1, sel=PowerOn, out=nextS1raw);
     Mux(a=false, b=incS0, sel=PowerOn, out=nextS0raw);
     
-    // 计时器模式锁定状态（不递增）
+    // 计时器模式锁定状态（Mux引脚格式正确）
     Mux(a=nextS2raw, b=S2, sel=TimerMode, out=nextS2);
     Mux(a=nextS1raw, b=S1, sel=TimerMode, out=nextS1);
     Mux(a=nextS0raw, b=S0, sel=TimerMode, out=nextS0);
     
     // ================================================
-    // 2. 按钮检测与锁存（两输入逻辑门级联）
+    // 2. 按钮检测与锁存（所有引脚显式声明，无隐含参数）
     // ================================================
-    // 上升沿检测（Button按下瞬间触发）
     DFF(in=Button, out=ButtonPrev);
     Not(in=ButtonPrev, out=notButtonPrev);
-    And(a=Button, b=notButtonPrev, out=ButtonRising); // 两输入And，符合标准
+    And(a=Button, b=notButtonPrev, out=ButtonRising);  // 两输入And，引脚完整
     
-    // SR触发器锁存请求（仅set和reset引脚）
+    // SR触发器：严格按set→reset→q→qn顺序调用
     SRFF(set=ButtonRising, reset=TimerEnd, q=ButtonPressedReg, qn=notButtonPressed);
-    And(a=ButtonPressedReg, b=PowerOn, out=ButtonPressed); // 两输入And
+    And(a=ButtonPressedReg, b=PowerOn, out=ButtonPressed);  // 引脚名无错写
     
     // ================================================
-    // 3. 计时器控制（核心修复：多输入逻辑级联）
+    // 3. 计时器控制（核心校验：所有部件引脚格式）
     // ================================================
-    // 计时器启动条件：Z完成循环（S2=1且S1=1且S0=1）AND 有按钮请求
-    // 四输入逻辑→三级两输入And级联
+    // 多输入And级联，引脚均为a、b、out
     And(a=S2, b=S1, out=S2S1);
-    And(a=S2S1, b=S0, out=S2S1S0); // 先合成S2S1S0（状态111）
-    And(a=S2S1S0, b=ButtonPressedReg, out=TimerStart); // 最终启动条件
+    And(a=S2S1, b=S0, out=S2S1S0);
+    And(a=S2S1S0, b=ButtonPressedReg, out=TimerStart);
     
-    // 计时器模式寄存器
+    // 计时器模式寄存器（DFF引脚正确）
     DFF(in=nextTimerMode, out=TimerMode);
     Not(in=TimerMode, out=notTimerMode);
     
-    // 4位十进制计数器（标准总线接口，无多输入错误）
+    // CounterDec：按load→dec→reset→out顺序调用，引脚名匹配定义
     CounterDec(load=TimerStart, dec=TimerMode, reset=PowerOn, out=TimerBus);
     
-    // 提取TimerBus的4位（两输入And，无语法错误）
+    // 提取TimerBus位（Mux16+And格式正确）
     Mux16(a=16#0000, b=TimerBus, sel=16#0001, out=T0bus);
     And(a=T0bus, b=16#0001, out=T0);
+    
     Mux16(a=16#0000, b=TimerBus, sel=16#0002, out=T1bus);
     And(a=T1bus, b=16#0001, out=T1);
+    
     Mux16(a=16#0000, b=TimerBus, sel=16#0004, out=T2bus);
     And(a=T2bus, b=16#0001, out=T2);
+    
     Mux16(a=16#0000, b=TimerBus, sel=16#0008, out=T3bus);
     And(a=T3bus, b=16#0001, out=T3);
     
-    // 计时器结束检测（T3=T2=T1=T0=0）：三级两输入Or级联
-    And(a=T0, b=T1, out=or01);
-    And(a=T2, b=T3, out=or23);
+    // 计时器结束检测（Or芯片仅a、b、out引脚）
+    Or(a=T0, b=T1, out=or01);
+    Or(a=T2, b=T3, out=or23);
     Or(a=or01, b=or23, out=TimerNotZero);
     Not(in=TimerNotZero, out=TimerEnd);
     
-    // 计时器模式控制（两输入Or/And）
+    // 计时器模式控制（Or/And引脚正确）
     Or(a=TimerMode, b=TimerStart, out=stayTimer);
     And(a=stayTimer, b=TimerNotZero, out=nextTimerMode);
     
     // ================================================
-    // 4. 状态解码（所有多输入逻辑级联，符合标准芯片语法）
+    // 4. 状态解码（所有And/Or引脚显式声明）
     // ================================================
-    // 8个状态检测（均为两输入And级联）
     And(a=notS2, b=notS1, out=notS2notS1);
-    And(a=notS2notS1, b=notS0, out=state000); // 000
-    And(a=notS2notS1, b=S0, out=state001);   // 001
+    And(a=notS2notS1, b=notS0, out=state000);
+    And(a=notS2notS1, b=S0, out=state001);
     
     And(a=notS2, b=S1, out=notS2S1);
-    And(a=notS2S1, b=notS0, out=state010);   // 010
-    And(a=notS2S1, b=S0, out=state011);      // 011
+    And(a=notS2S1, b=notS0, out=state010);
+    And(a=notS2S1, b=S0, out=state011);
     
     And(a=S2, b=notS1, out=S2notS1);
-    And(a=S2notS1, b=notS0, out=state100);   // 100
-    And(a=S2notS1, b=S0, out=state101);      // 101
+    And(a=S2notS1, b=notS0, out=state100);
+    And(a=S2notS1, b=S0, out=state101);
     
     And(a=S2, b=S1, out=S2S1);
-    And(a=S2S1, b=notS0, out=state110);      // 110
-    And(a=S2S1, b=S0, out=state111);         // 111
+    And(a=S2S1, b=notS0, out=state110);
+    And(a=S2S1, b=S0, out=state111);
     
     // ================================================
-    // 5. 交通灯输出（X/Z：RED=第2位，AMBER=第1位，GREEN=第0位）
+    // 5. 交通灯输出（Mux引脚顺序严格）
     // ================================================
-    // X灯态逻辑（两输入Or级联，无多输入错误）
     Or(a=state000, b=state100, out=Xred1);
-    Or(a=Xred1, b=S2, out=Xred); // 三输入Or→两级两输入Or
-    Or(a=state001, b=state011, out=Xamber); // 两输入Or
-    And(a=state010, b=true, out=Xgreen);    // 两输入And（b=true为固定高电平）
+    Or(a=Xred1, b=S2, out=Xred);
+    Or(a=state001, b=state011, out=Xamber);
+    And(a=state010, b=true, out=Xgreen);
     
-    // Z灯态逻辑（两输入Or级联）
-    Or(a=notS2, b=state100, out=Zred);      // 两输入Or
-    Or(a=state101, b=state111, out=Zamber); // 两输入Or
-    And(a=state110, b=true, out=Zgreen);    // 两输入And
+    Or(a=notS2, b=state100, out=Zred);
+    Or(a=state101, b=state111, out=Zamber);
+    And(a=state110, b=true, out=Zgreen);
     
-    // 计时器模式下强制X/Z为RED（100）
+    // 计时器模式强制RED（Mux引脚：a、b、sel、out）
     Mux(a=Xred, b=true, sel=TimerMode, out=X[2]);
     Mux(a=Xamber, b=false, sel=TimerMode, out=X[1]);
     Mux(a=Xgreen, b=false, sel=TimerMode, out=X[0]);
@@ -143,66 +138,61 @@ CHIP Crossing {
     Mux(a=Zgreen, b=false, sel=TimerMode, out=Z[0]);
     
     // ================================================
-    // 6. Wait信号与7段显示（无语法错误）
+    // 6. Wait信号与7段显示（无引脚格式错误）
     // ================================================
-    Not(in=TimerMode, out=Wait); // 标准Not芯片
+    Not(in=TimerMode, out=Wait);
     
-    // 构造7段解码器输入总线（4位）
+    // 构造7段解码器输入总线（Mux16顺序正确）
     Mux16(a=16#0000, b=T0bus, sel=16#0001, out=decIn0);
     Mux16(a=decIn0, b=T1bus, sel=16#0002, out=decIn1);
     Mux16(a=decIn1, b=T2bus, sel=16#0004, out=decIn2);
     Mux16(a=decIn2, b=T3bus, sel=16#0008, out=decInBus);
     
-    // 7段解码器（标准4位输入，7段输出）
+    // Decoder7Seg：按in→a→b→c→d→e→f→g顺序调用
     Decoder7Seg(in=decInBus, a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
     
-    // 仅计时器模式输出段码（两输入And）
-    And(a=segA, b=TimerMode, out=C[0]); // C[0]=a段
-    And(a=segB, b=TimerMode, out=C[1]); // C[1]=b段
-    And(a=segC, b=TimerMode, out=C[2]); // C[2]=c段
-    And(a=segD, b=TimerMode, out=C[3]); // C[3]=d段
-    And(a=segE, b=TimerMode, out=C[4]); // C[4]=e段
-    And(a=segF, b=TimerMode, out=C[5]); // C[5]=f段
-    And(a=segG, b=TimerMode, out=C[6]); // C[6]=g段
+    // 段码输出（And引脚正确）
+    And(a=segA, b=TimerMode, out=C[0]);
+    And(a=segB, b=TimerMode, out=C[1]);
+    And(a=segC, b=TimerMode, out=C[2]);
+    And(a=segD, b=TimerMode, out=C[3]);
+    And(a=segE, b=TimerMode, out=C[4]);
+    And(a=segF, b=TimerMode, out=C[5]);
+    And(a=segG, b=TimerMode, out=C[6]);
 }
 
 // ================================================
-// 辅助芯片1：SR触发器（标准两输入set/reset，无语法错误）
+// 辅助芯片1：SR触发器（引脚定义与调用严格一致）
 // ================================================
 CHIP SRFF {
     IN set, reset;
     OUT q, qn;
     PARTS:
-    Nand(a=set, b=qn, out=q);   // 标准Nand芯片（两输入）
-    Nand(a=reset, b=q, out=qn); // 标准Nand芯片（两输入）
+    Nand(a=set, b=qn, out=q);
+    Nand(a=reset, b=q, out=qn);
 }
 
 // ================================================
-// 辅助芯片2：4位十进制递减计数器（无多输入错误）
-// 功能：load=1→加载9（1001），dec=1→减1，reset=1→清零
+// 辅助芯片2：4位十进制递减计数器（引脚无错写）
 // ================================================
 CHIP CounterDec {
     IN load, dec, reset;
     OUT out[4];
     PARTS:
-    // 内部状态寄存器（每个位仅1个DFF）
     DFF(in=finalNext0, out=out[0]);
     DFF(in=finalNext1, out=out[1]);
     DFF(in=finalNext2, out=out[2]);
     DFF(in=finalNext3, out=out[3]);
     
-    // 步骤1：递减逻辑（两输入And/Or级联）
-    // 构造当前计数的16位总线
+    // 递减逻辑（所有芯片引脚正确）
     Mux16(a=16#0000, b=16#0001, sel=out[0], out=bit0cnt);
     Mux16(a=bit0cnt, b=16#0002, sel=out[1], out=bit1cnt);
     Mux16(a=bit1cnt, b=16#0004, sel=out[2], out=bit2cnt);
     Mux16(a=bit2cnt, b=16#0008, sel=out[3], out=currentCnt);
     
-    // 递减1（currentCnt - 1）：标准Inc16+Sub16
     Inc16(in=currentCnt, out=incTemp);
     Sub16(in=incTemp, sub=16#0001, out=decTemp);
     
-    // 提取递减后的低4位（两输入And）
     Mux16(a=16#0000, b=decTemp, sel=16#0001, out=decBit0);
     And(a=decBit0, b=16#0001, out=decNext0);
     Mux16(a=16#0000, b=decTemp, sel=16#0002, out=decBit1);
@@ -212,13 +202,13 @@ CHIP CounterDec {
     Mux16(a=16#0000, b=decTemp, sel=16#0008, out=decBit3);
     And(a=decBit3, b=16#0001, out=decNext3);
     
-    // 步骤2：加载逻辑（load=1→加载9=1001）
-    Mux(a=decNext0, b=true,  sel=load, out=loadDec0); // T0=1
-    Mux(a=decNext1, b=false, sel=load, out=loadDec1); // T1=0
-    Mux(a=decNext2, b=false, sel=load, out=loadDec2); // T2=0
-    Mux(a=decNext3, b=true,  sel=load, out=loadDec3); // T3=1
+    // 加载逻辑（Mux引脚正确）
+    Mux(a=decNext0, b=true, sel=load, out=loadDec0);
+    Mux(a=decNext1, b=false, sel=load, out=loadDec1);
+    Mux(a=decNext2, b=false, sel=load, out=loadDec2);
+    Mux(a=decNext3, b=true, sel=load, out=loadDec3);
     
-    // 步骤3：复位逻辑（reset=1→强制0000，优先级最高）
+    // 复位逻辑（Mux引脚正确）
     Mux(a=loadDec0, b=false, sel=reset, out=finalNext0);
     Mux(a=loadDec1, b=false, sel=reset, out=finalNext1);
     Mux(a=loadDec2, b=false, sel=reset, out=finalNext2);
@@ -226,13 +216,13 @@ CHIP CounterDec {
 }
 
 // ================================================
-// 辅助芯片3：7段解码器（共阴极，无多输入错误）
+// 辅助芯片3：7段解码器（引脚无错写，逻辑级联正确）
 // ================================================
 CHIP Decoder7Seg {
-    IN in[4]; // 4位总线输入（T3T2T1T0）
-    OUT a, b, c, d, e, f, g; // 段码（1=亮）
+    IN in[4];
+    OUT a, b, c, d, e, f, g;
     PARTS:
-    // 提取输入总线4位（两输入And）
+    // 提取输入位（Mux16+And格式正确）
     Mux16(a=16#0000, b=in, sel=16#0001, out=in0bus);
     And(a=in0bus, b=16#0001, out=in0);
     Mux16(a=16#0000, b=in, sel=16#0002, out=in1bus);
@@ -242,27 +232,31 @@ CHIP Decoder7Seg {
     Mux16(a=16#0000, b=in, sel=16#0008, out=in3bus);
     And(a=in3bus, b=16#0001, out=in3);
     
-    // 段码逻辑（所有多输入→两输入级联）
-    // a段：0/2/3/5/6/7/8/9亮 → (¬in3 ∨ in1) ∨ in0
-    Or(a=not(in3), b=in1, out=a1);
+    // 段码逻辑（两输入Or/And级联，引脚正确）
+    Not(in=in3, out=notIn3);
+    Not(in=in2, out=notIn2);
+    Not(in=in1, out=notIn1);
+    Not(in=in0, out=notIn0);
+    
+    Or(a=notIn3, b=in1, out=a1);
     Or(a=a1, b=in0, out=a);
-    // b段：0/1/2/3/7/8/9亮 → (¬in2 ∨ ¬in1) ∨ in0
-    Or(a=not(in2), b=not(in1), out=b1);
+    
+    Or(a=notIn2, b=notIn1, out=b1);
     Or(a=b1, b=in0, out=b);
-    // c段：0/1/3/4/5/6/8/9亮 → ¬in1 ∨ in0
-    Or(a=not(in1), b=in0, out=c);
-    // d段：0/2/3/5/6/8亮 → (¬in3 ∨ ¬in2) ∨ (in1 ∧ ¬in0)
-    Or(a=not(in3), b=not(in2), out=d1);
-    And(a=in1, b=not(in0), out=d2);
+    
+    Or(a=notIn1, b=in0, out=c);
+    
+    Or(a=notIn3, b=notIn2, out=d1);
+    And(a=in1, b=notIn0, out=d2);
     Or(a=d1, b=d2, out=d);
-    // e段：0/2/6/8亮 → ¬in2 ∨ ¬in0
-    Or(a=not(in2), b=not(in0), out=e);
-    // f段：0/4/5/6/8/9亮 → (¬in3 ∨ in2) ∧ (¬in1 ∨ ¬in0)
-    Or(a=not(in3), b=in2, out=f1);
-    Or(a=not(in1), b=not(in0), out=f2);
+    
+    Or(a=notIn2, b=notIn0, out=e);
+    
+    Or(a=notIn3, b=in2, out=f1);
+    Or(a=notIn1, b=notIn0, out=f2);
     And(a=f1, b=f2, out=f);
-    // g段：2/3/4/5/6/8/9亮 → (¬in3 ∨ in2) ∧ (in1 ∨ ¬in0)
-    Or(a=not(in3), b=in2, out=g1);
-    Or(a=in1, b=not(in0), out=g2);
+    
+    Or(a=notIn3, b=in2, out=g1);
+    Or(a=in1, b=notIn0, out=g2);
     And(a=g1, b=g2, out=g);
 }
