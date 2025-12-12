@@ -1,219 +1,231 @@
 // ================================================
 // Crossing Controller with Pedestrian Timer
-// 使用 CounterDec 作为倒数计时器
+// 修正版本 - 修复状态机和输出逻辑
 // ================================================
 
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
-
+    
     PARTS:
-
-    // --- 主状态机 (8个状态) ---
-    // 状态编码: state2,state1,state0
+    
+    // --- 状态寄存器 (3位) ---
+    // 状态编码: state2, state1, state0
     // 000: 双红灯 (初始状态)
-    // 001: X红黄
-    // 010: X绿
-    // 011: X黄
-    // 100: Z红黄
-    // 101: Z绿
-    // 110: Z黄
-    // 111: 计时器模式 (双红灯，显示倒数)
+    // 001: X红黄，Z红
+    // 010: X绿，Z红
+    // 011: X黄，Z红
+    // 100: 双红灯 (X周期结束)
+    // 101: Z红黄，X红
+    // 110: Z绿，X红
+    // 111: Z黄，X红
     DFF(in=nextState0, out=state0);
     DFF(in=nextState1, out=state1);
     DFF(in=nextState2, out=state2);
-
-    // 状态反相
+    
+    // 状态反相信号
     Not(in=state0, out=notState0);
     Not(in=state1, out=notState1);
     Not(in=state2, out=notState2);
-
-    // --- 状态解码 (使用两个And组合实现三输入与) ---
+    
+    // --- 计时器模式寄存器 ---
+    DFF(in=nextTimerMode, out=TimerMode);
+    Not(in=TimerMode, out=notTimerMode);
+    
+    // --- 状态解码 ---
     // 状态000: 双红灯
     And(a=notState2, b=notState1, out=and0001);
     And(a=and0001, b=notState0, out=state000);
-
+    
     // 状态001: X红黄
     And(a=notState2, b=notState1, out=and0011);
     And(a=and0011, b=state0, out=state001);
-
+    
     // 状态010: X绿
     And(a=notState2, b=state1, out=and0101);
     And(a=and0101, b=notState0, out=state010);
-
+    
     // 状态011: X黄
     And(a=notState2, b=state1, out=and0111);
     And(a=and0111, b=state0, out=state011);
-
-    // 状态100: Z红黄
+    
+    // 状态100: 双红灯
     And(a=state2, b=notState1, out=and1001);
     And(a=and1001, b=notState0, out=state100);
-
-    // 状态101: Z绿
+    
+    // 状态101: Z红黄
     And(a=state2, b=notState1, out=and1011);
     And(a=and1011, b=state0, out=state101);
-
-    // 状态110: Z黄
+    
+    // 状态110: Z绿
     And(a=state2, b=state1, out=and1101);
     And(a=and1101, b=notState0, out=state110);
-
-    // 状态111: 计时器模式
+    
+    // 状态111: Z黄
     And(a=state2, b=state1, out=and1111);
     And(a=and1111, b=state0, out=state111);
-
+    
     // --- 按钮检测和锁存 ---
     DFF(in=Button, out=buttonPrev);
     Not(in=buttonPrev, out=notButtonPrev);
     And(a=Button, b=notButtonPrev, out=buttonRisingEdge);
-
+    
     // 按钮锁存寄存器
     DFF(in=nextButtonLatched, out=buttonLatched);
-
-    // 按钮锁存逻辑: 按下时锁存，计时器模式结束时清除
-    Or(a=buttonRisingEdge, b=buttonLatched, out=buttonLatchedOr);
-    // 在状态000（双红灯）时清除锁存，确保每次循环只响应一次按钮
-    And(a=buttonLatchedOr, b=notState2, out=tempBtn1);
-    And(a=tempBtn1, b=notState1, out=tempBtn2);
-    And(a=tempBtn2, b=notState0, out=nextButtonLatched);
-
+    
     // --- 计时器模块 ---
-    // 使用 CounterDec 从9倒数到0
-    CounterDec(dec=timerDec, reset=timerReset, out[0]=timer0, out[1]=timer1, out[2]=timer2, out[3]=timer3);
-
+    // 使用CounterDec从9倒数到0
+    CounterDec(dec=timerDec, reset=timerReset, 
+               out[0]=timer0, out[1]=timer1, out[2]=timer2, out[3]=timer3);
+    
     // 检测计时器是否为0 (0000)
     Or(a=timer0, b=timer1, out=orTimer01);
     Or(a=timer2, b=timer3, out=orTimer23);
     Or(a=orTimer01, b=orTimer23, out=timerNotZero);
     Not(in=timerNotZero, out=timerZero);
-
-    // --- 状态转移逻辑 ---
-    // 进入计时器模式的条件: 按钮已锁存且处于Z黄灯状态(110)
-    And(a=buttonLatched, b=state110, out=enterTimerCond);
+    
+    // --- 计时器控制逻辑 ---
+    // 计时器递减使能：在计时器模式且计时器不为0时递减
+    And(a=TimerMode, b=timerNotZero, out=timerDec);
+    
+    // 计时器复位：进入计时器模式时复位到9
+    // 进入计时器模式的条件：按钮已锁存且处于Z黄灯状态(111)
+    And(a=buttonLatched, b=state111, out=enterTimerCond);
     And(a=enterTimerCond, b=PowerOn, out=enterTimer);
-
-    // 退出计时器模式的条件: 处于计时器模式(111)且计时器为0
-    And(a=state111, b=timerZero, out=exitTimer);
-
-    // 正常状态转移序列: 000->001->010->011->100->101->110->000
+    
+    Mux(a=false, b=true, sel=enterTimer, out=timerReset);
+    
+    // --- 计时器模式控制逻辑 ---
+    // 进入计时器模式：当满足条件时
+    // 退出计时器模式：当计时器为0时
+    And(a=TimerMode, b=timerZero, out=exitTimer);
+    
+    Or(a=enterTimer, b=TimerMode, out=stayOrEnter);
+    Not(in=exitTimer, out=notExit);
+    And(a=stayOrEnter, b=notExit, out=nextTimerMode);
+    
+    // --- 按钮锁存逻辑 ---
+    // 按钮按下时锁存，计时器模式结束时清除
+    Or(a=buttonRisingEdge, b=buttonLatched, out=buttonLatchedOr);
+    And(a=buttonLatchedOr, b=notTimerMode, out=nextButtonLatched);
+    
+    // --- 状态转移逻辑 ---
+    // 正常状态转移序列：000->001->010->011->100->101->110->111->000
+    
     // 状态0的下一状态位
+    // 当状态为000,011,111时，下一状态的state0=1
     Or(a=state000, b=state011, out=orState01);
-    Or(a=orState01, b=state110, out=orState02);
+    Or(a=orState01, b=state111, out=orState02);
     And(a=orState02, b=PowerOn, out=nextState0Base);
-
+    
     // 状态1的下一状态位
+    // 当状态为001,010,101,110时，下一状态的state1=1
     Or(a=state001, b=state010, out=orState11);
-    Or(a=state100, b=state101, out=orState12);
+    Or(a=state101, b=state110, out=orState12);
     Or(a=orState11, b=orState12, out=orState13);
     And(a=orState13, b=PowerOn, out=nextState1Base);
-
+    
     // 状态2的下一状态位
+    // 当状态为100,101,110,111时，下一状态的state2=1
     Or(a=state100, b=state101, out=orState21);
-    Or(a=orState21, b=state110, out=orState22);
-    And(a=orState22, b=PowerOn, out=nextState2Base);
-
-    // 应用计时器模式: 进入时跳转到111，退出时回到000
-    Mux(a=nextState0Base, b=true, sel=enterTimer, out=nextState0Temp);
-    Mux(a=nextState1Base, b=true, sel=enterTimer, out=nextState1Temp);
-    Mux(a=nextState2Base, b=true, sel=enterTimer, out=nextState2Temp);
-
-    Mux(a=nextState0Temp, b=false, sel=exitTimer, out=nextState0);
-    Mux(a=nextState1Temp, b=false, sel=exitTimer, out=nextState1);
-    Mux(a=nextState2Temp, b=false, sel=exitTimer, out=nextState2);
-
-    // --- 计时器控制逻辑 ---
-    // 计时器递减使能: 在计时器模式且计时器不为0时递减
-    And(a=state111, b=timerNotZero, out=timerDec);
-
-    // 计时器复位: 进入计时器模式时复位到9
-    // CounterDec的reset是高有效，复位到9 (1001)
-    Or(a=enterTimer, b=false, out=timerReset);
-
+    Or(a=state110, b=state111, out=orState22);
+    Or(a=orState21, b=orState22, out=orState23);
+    And(a=orState23, b=PowerOn, out=nextState2Base);
+    
+    // 应用计时器模式：计时器模式下冻结状态机
+    Mux(a=nextState0Base, b=state0, sel=TimerMode, out=nextState0);
+    Mux(a=nextState1Base, b=state1, sel=TimerMode, out=nextState1);
+    Mux(a=nextState2Base, b=state2, sel=TimerMode, out=nextState2);
+    
     // --- 交通灯输出逻辑 ---
     // X灯: X[2]=红, X[1]=黄, X[0]=绿
-    // X红灯亮当: 状态000,100,101,110,111
-    Or(a=state000, b=state100, out=xRedOr1);
-    Or(a=xRedOr1, b=state101, out=xRedOr2);
-    Or(a=xRedOr2, b=state110, out=xRedOr3);
-    Or(a=xRedOr3, b=state111, out=xRedOr4);
-    And(a=xRedOr4, b=PowerOn, out=X[2]);
-
-    // X黄灯亮当: 状态001或011
-    Or(a=state001, b=state011, out=xAmberOr);
+    // X红灯亮当: 状态000,011,100,101,110,111,或计时器模式
+    Or(a=state000, b=state011, out=xRedOr1);
+    Or(a=state100, b=state101, out=xRedOr2);
+    Or(a=state110, b=state111, out=xRedOr3);
+    Or(a=xRedOr1, b=xRedOr2, out=xRedOr4);
+    Or(a=xRedOr4, b=xRedOr3, out=xRedOr5);
+    Or(a=xRedOr5, b=TimerMode, out=xRedOr6);
+    And(a=xRedOr6, b=PowerOn, out=X[2]);
+    
+    // X黄灯亮当: 状态001或010
+    Or(a=state001, b=state010, out=xAmberOr);
     And(a=xAmberOr, b=PowerOn, out=X[1]);
-
+    
     // X绿灯亮当: 状态010
-    And(a=state010, b=PowerOn, out=X[0]);
-
+    And(a=state010, b=PowerOn, out=XgreenTemp);
+    // X黄灯还要考虑状态011
+    And(a=state011, b=PowerOn, out=xAmberTemp);
+    
+    // X[1]的最终输出：红黄状态或黄灯状态
+    Or(a=X[1], b=xAmberTemp, out=X[1]);
+    // X[0]的输出：绿灯
+    Mux(a=false, b=XgreenTemp, sel=PowerOn, out=X[0]);
+    
     // Z灯: Z[2]=红, Z[1]=黄, Z[0]=绿
-    // Z红灯亮当: 状态000,001,010,011,111
+    // Z红灯亮当: 状态000,001,010,011,100,111,或计时器模式
     Or(a=state000, b=state001, out=zRedOr1);
-    Or(a=zRedOr1, b=state010, out=zRedOr2);
-    Or(a=zRedOr2, b=state011, out=zRedOr3);
-    Or(a=zRedOr3, b=state111, out=zRedOr4);
-    And(a=zRedOr4, b=PowerOn, out=Z[2]);
-
-    // Z黄灯亮当: 状态100或110
-    Or(a=state100, b=state110, out=zAmberOr);
+    Or(a=state010, b=state011, out=zRedOr2);
+    Or(a=state100, b=state111, out=zRedOr3);
+    Or(a=zRedOr1, b=zRedOr2, out=zRedOr4);
+    Or(a=zRedOr4, b=zRedOr3, out=zRedOr5);
+    Or(a=zRedOr5, b=TimerMode, out=zRedOr6);
+    And(a=zRedOr6, b=PowerOn, out=Z[2]);
+    
+    // Z黄灯亮当: 状态101或110
+    Or(a=state101, b=state110, out=zAmberOr);
     And(a=zAmberOr, b=PowerOn, out=Z[1]);
-
-    // Z绿灯亮当: 状态101
-    And(a=state101, b=PowerOn, out=Z[0]);
-
+    
+    // Z绿灯亮当: 状态110
+    And(a=state110, b=PowerOn, out=ZgreenTemp);
+    // Z黄灯还要考虑状态111
+    And(a=state111, b=PowerOn, out=zAmberTemp);
+    
+    // Z[1]的最终输出：红黄状态或黄灯状态
+    Or(a=Z[1], b=zAmberTemp, out=Z[1]);
+    // Z[0]的输出：绿灯
+    Mux(a=false, b=ZgreenTemp, sel=PowerOn, out=Z[0]);
+    
+    // 计时器模式下强制双红灯
+    Mux(a=X[2], b=true, sel=TimerMode, out=XredFinal);
+    Mux(a=X[1], b=false, sel=TimerMode, out=XamberFinal);
+    Mux(a=X[0], b=false, sel=TimerMode, out=XgreenFinal);
+    
+    Mux(a=Z[2], b=true, sel=TimerMode, out=ZredFinal);
+    Mux(a=Z[1], b=false, sel=TimerMode, out=ZamberFinal);
+    Mux(a=Z[0], b=false, sel=TimerMode, out=ZgreenFinal);
+    
+    // 最终输出
+    And(a=XredFinal, b=PowerOn, out=X[2]);
+    And(a=XamberFinal, b=PowerOn, out=X[1]);
+    And(a=XgreenFinal, b=PowerOn, out=X[0]);
+    
+    And(a=ZredFinal, b=PowerOn, out=Z[2]);
+    And(a=ZamberFinal, b=PowerOn, out=Z[1]);
+    And(a=ZgreenFinal, b=PowerOn, out=Z[0]);
+    
     // --- Wait信号 ---
     // Wait=1表示交通灯在正常序列中，不能过街
     // Wait=0表示在计时器模式，可以过街
-    Not(in=state111, out=Wait);
-
+    Not(in=TimerMode, out=Wait);
+    
     // --- ButtonPressed输出 ---
     And(a=buttonLatched, b=PowerOn, out=ButtonPressed);
-
+    
     // --- 7段数码管输出 ---
-    // 根据8.jpg的段位顺序: 
-    // a=下横段线在底端, e=上横段线在顶端, b=中横段线在中间
-    // d=左上竖段线在左上端, f=右上竖段线在右上端
-    // g=左下竖段线在左下端, c=右下竖段线在右下端
-    // 输出顺序: C[6]=a, C[5]=e, C[4]=b, C[3]=c, C[2]=d, C[1]=f, C[0]=g
-
-    // 这里我们需要一个4位到7段的解码器
-    // 由于HDL没有内置解码器，我们使用组合逻辑实现
-    // 注意：计时器值从9到0，我们只解码0-9，其他值显示空白
-
-    // 首先将4位计时器值解码为数字0-9的段码
-    // 我们分别计算每个段的亮灭条件
-
-    // 段a (C[6]): 显示0,2,3,5,6,7,8,9时亮
-    // 使用逻辑表达式简化，这里我们使用查表方式
-    // 由于逻辑复杂，我们使用多个门组合
-
-    // 我们使用一个简化的方法：只显示计时器值的二进制对应的简单图案
-    // 为了通过测试，我们显示数字8（所有段亮）当计时器不为0，显示0当计时器为0
-    // 实际应该根据计时器值显示对应数字，但为了代码简洁，先这样实现
-
-    // 计时器模式激活信号
-    And(a=state111, b=PowerOn, out=timerActive);
-
-    // 计时器为0时显示数字0，否则显示数字8
-    // 数字0: a,b,c,d,e,f亮 = 1111110
-    // 数字8: 全亮 = 1111111
-
-    // 段a: 总是亮（数字0和8都亮）
-    And(a=timerActive, b=true, out=C[6]);
-
-    // 段e: 总是亮
-    And(a=timerActive, b=true, out=C[5]);
-
-    // 段b: 总是亮
-    And(a=timerActive, b=true, out=C[4]);
-
-    // 段c: 总是亮
-    And(a=timerActive, b=true, out=C[3]);
-
-    // 段d: 总是亮
-    And(a=timerActive, b=true, out=C[2]);
-
-    // 段f: 总是亮
-    And(a=timerActive, b=true, out=C[1]);
-
-    // 段g: 当计时器不为0时亮（显示8），为0时灭（显示0）
-    And(a=timerActive, b=timerNotZero, out=C[0]);
+    // 使用Decoder将4位计时器值转换为7段显示
+    // 注意：Decoder的输出顺序为a,b,c,d,e,f,g
+    // 但根据8.jpg，我们需要重新排序：C[6]=a, C[5]=e, C[4]=b, C[3]=c, C[2]=d, C[1]=f, C[0]=g
+    
+    Decoder(in[0]=timer0, in[1]=timer1, in[2]=timer2, in[3]=timer3,
+            a=decA, b=decB, c=decC, d=decD, e=decE, f=decF, g=decG);
+    
+    // 仅当计时器模式时输出数码管信号
+    And(a=decA, b=TimerMode, out=C[6]);  // a -> C[6]
+    And(a=decE, b=TimerMode, out=C[5]);  // e -> C[5]
+    And(a=decB, b=TimerMode, out=C[4]);  // b -> C[4]
+    And(a=decC, b=TimerMode, out=C[3]);  // c -> C[3]
+    And(a=decD, b=TimerMode, out=C[2]);  // d -> C[2]
+    And(a=decF, b=TimerMode, out=C[1]);  // f -> C[1]
+    And(a=decG, b=TimerMode, out=C[0]);  // g -> C[0]
 }
