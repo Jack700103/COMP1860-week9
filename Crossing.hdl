@@ -7,9 +7,7 @@ CHIP Crossing {
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     PARTS:
     
-    // --- 使用JunctionController作为基础状态机，但避免子总线问题 ---
-    // 我们将直接实现JunctionController的逻辑，而不是调用它
-    // 状态寄存器
+    // --- 状态寄存器 ---
     DFF(in=nextS2, out=S2);
     DFF(in=nextS1, out=S1);
     DFF(in=nextS0, out=S0);
@@ -19,7 +17,7 @@ CHIP Crossing {
     Not(in=S1, out=notS1);
     Not(in=S2, out=notS2);
     
-    // 状态转移逻辑（来自JunctionController）
+    // --- 状态转移逻辑 ---
     Xor(a=S1, b=S0, out=xorS1S0);
     And(a=S1, b=S0, out=andS1S0);
     Xor(a=S2, b=andS1S0, out=xorS2);
@@ -41,51 +39,55 @@ CHIP Crossing {
     // ButtonPressed寄存器
     DFF(in=nextBP, out=ButtonPressedReg);
     
-    // 计时器模块
-    CounterDec(dec=TimerDec, reset=TimerReset, out=Timer0, out[1]=Timer1, out[2]=Timer2, out[3]=Timer3);
+    // --- 计时器模块 ---
+    // 正确连接CounterDec的输出到4位总线TimerBus
+    CounterDec(dec=TimerDec, reset=TimerReset, out=TimerBus);
     
-    // 检查计时器是否为0
+    // 从4位总线中提取各个位（如果需要单独使用）
+    // 注意：这里使用Or门将总线位连接到单比特信号，避免直接使用索引
+    Or(a=TimerBus[0], b=false, out=Timer0);
+    Or(a=TimerBus[1], b=false, out=Timer1);
+    Or(a=TimerBus[2], b=false, out=Timer2);
+    Or(a=TimerBus[3], b=false, out=Timer3);
+    
+    // 检查计时器是否为0（0000）
     Or(a=Timer0, b=Timer1, out=or01);
     Or(a=Timer2, b=Timer3, out=or23);
     Or(a=or01, b=or23, out=TimerNotZero);
     Not(in=TimerNotZero, out=TimerZero);
     
-    // 检查是否是双红灯状态（同步点）
-    // 在正常序列中，当S2=0时X灯控制，当S2=1时Z灯控制
-    // 双红灯发生在状态转换的边界
-    
-    // 我们需要检测何时完成一个完整周期（X和Z都完成了）
-    // 简化方法：当S2从1变回0时，表示Z周期完成
-    
+    // --- 检测Z周期完成 ---
     DFF(in=S2, out=S2prev);
-    And(a=S2prev, b=notS2, out=S2falling); // Z周期完成
+    And(a=S2prev, b=notS2, out=S2falling);
     
     // 计时器启动条件：按钮已按下且Z周期完成
     And(a=ButtonPressedReg, b=S2falling, out=startTimerCond);
     And(a=startTimerCond, b=PowerOn, out=startTimer);
     
-    // 按钮锁存逻辑
+    // --- 按钮锁存逻辑 ---
     Or(a=ButtonRisingEdge, b=ButtonPressedReg, out=BPor);
     And(a=BPor, b=notTimerMode, out=BPand);
     Or(a=BPand, b=ButtonRisingEdge, out=nextBPtemp);
     And(a=nextBPtemp, b=PowerOn, out=nextBP);
     
-    // 计时器模式控制
+    // --- 计时器模式控制逻辑 ---
     And(a=TimerMode, b=TimerZero, out=exitTimer);
     Or(a=TimerMode, b=startTimer, out=stayOrStart);
     Not(in=exitTimer, out=notExit);
     And(a=stayOrStart, b=notExit, out=nextTimerMode);
     
-    // 计时器控制信号
+    // 计时器递减使能：计时器模式且计时器不为0
     And(a=TimerMode, b=TimerNotZero, out=TimerDec);
+    
+    // 计时器复位：启动计时器时复位到9
     Mux(a=false, b=true, sel=startTimer, out=TimerReset);
     
-    // 应用计时器模式到状态转移
+    // --- 应用计时器模式到状态转移 ---
     Mux(a=nextS2normal, b=S2, sel=TimerMode, out=nextS2);
     Mux(a=nextS1normal, b=S1, sel=TimerMode, out=nextS1);
     Mux(a=nextS0normal, b=S0, sel=TimerMode, out=nextS0);
     
-    // --- 交通灯输出逻辑（来自JunctionController）---
+    // --- 交通灯输出逻辑 ---
     Mux(a=S1, b=false, sel=S2, out=xstate1);
     Mux(a=S0, b=false, sel=S2, out=xstate0);
     
@@ -117,28 +119,7 @@ CHIP Crossing {
     Not(in=TimerMode, out=Wait);
     
     // --- 7段数码管输出 ---
-    // 将计时器输出合并为4位总线
-    // 我们需要创建4位总线作为Decoder的输入
-    // 由于HDL限制，我们需要通过Or门将单bit信号组合
-    // 但实际上，CounterDec的输出已经是4位，我们需要将其连接到Decoder
-    
-    // 创建4位输入给Decoder
-    // 方法：将每个计时器位分别连接到Decoder的对应输入
-    // 但Decoder期望一个4位总线，我们可以这样连接：
-    // Decoder(in[0]=Timer0, in[1]=Timer1, in[2]=Timer2, in[3]=Timer3, ...)
-    // 在HDL中，我们可以这样写：
-    
-    // 创建4位总线
-    // 注意：这里使用了子总线赋值语法，这是允许的
-    // 因为Timer0, Timer1, Timer2, Timer3是单bit输出
-    
-    // 创建临时总线
-    Or(a=Timer0, b=false, out=TimerBus[0]);
-    Or(a=Timer1, b=false, out=TimerBus[1]);
-    Or(a=Timer2, b=false, out=TimerBus[2]);
-    Or(a=Timer3, b=false, out=TimerBus[3]);
-    
-    // 使用Decoder
+    // 直接将TimerBus（4位）传递给Decoder芯片
     Decoder(in=TimerBus, a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
     
     // 仅当计时器模式时输出数码管信号
