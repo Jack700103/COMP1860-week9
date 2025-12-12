@@ -1,209 +1,139 @@
-// ================================================
-// Crossing Controller with Pedestrian Timer
-// 修正连接问题 - 确保每个输出只有一个驱动源
-// ================================================
-
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
-    
+
     PARTS:
-    
-    // --- 状态寄存器 (3位) ---
-    DFF(in=nextState0, out=state0);
-    DFF(in=nextState1, out=state1);
-    DFF(in=nextState2, out=state2);
-    
-    // 状态反相信号
-    Not(in=state0, out=notState0);
-    Not(in=state1, out=notState1);
-    Not(in=state2, out=notState2);
-    
-    // --- 计时器模式寄存器 ---
-    DFF(in=nextTimerMode, out=TimerMode);
-    Not(in=TimerMode, out=notTimerMode);
-    
-    // --- 状态解码 ---
-    // 状态000: 双红灯
-    And(a=notState2, b=notState1, out=and0001);
-    And(a=and0001, b=notState0, out=state000);
-    
-    // 状态001: X红黄
-    And(a=notState2, b=notState1, out=and0011);
-    And(a=and0011, b=state0, out=state001);
-    
-    // 状态010: X绿
-    And(a=notState2, b=state1, out=and0101);
-    And(a=and0101, b=notState0, out=state010);
-    
-    // 状态011: X黄
-    And(a=notState2, b=state1, out=and0111);
-    And(a=and0111, b=state0, out=state011);
-    
-    // 状态100: 双红灯
-    And(a=state2, b=notState1, out=and1001);
-    And(a=and1001, b=notState0, out=state100);
-    
-    // 状态101: Z红黄
-    And(a=state2, b=notState1, out=and1011);
-    And(a=and1011, b=state0, out=state101);
-    
-    // 状态110: Z绿
-    And(a=state2, b=state1, out=and1101);
-    And(a=and1101, b=notState0, out=state110);
-    
-    // 状态111: Z黄
-    And(a=state2, b=state1, out=and1111);
-    And(a=and1111, b=state0, out=state111);
-    
-    // --- 按钮检测和锁存 ---
-    DFF(in=Button, out=buttonPrev);
-    Not(in=buttonPrev, out=notButtonPrev);
-    And(a=Button, b=notButtonPrev, out=buttonRisingEdge);
-    
-    // 按钮锁存寄存器
-    DFF(in=nextButtonLatched, out=buttonLatched);
-    
-    // --- 计时器模块 ---
-    // 使用4位寄存器作为计时器
-    DFF(in=nextTimer0, out=timer0);
-    DFF(in=nextTimer1, out=timer1);
-    DFF(in=nextTimer2, out=timer2);
-    DFF(in=nextTimer3, out=timer3);
-    
-    // 检测计时器是否为0 (0000)
-    Or(a=timer0, b=timer1, out=orTimer01);
-    Or(a=timer2, b=timer3, out=orTimer23);
-    Or(a=orTimer01, b=orTimer23, out=timerNotZero);
-    Not(in=timerNotZero, out=timerZero);
-    
-    // --- 计时器控制逻辑 ---
-    // 计算递减值
-    Not(in=timer0, out=notTimer0);
-    
-    // 递减逻辑
-    And(a=TimerMode, b=timerNotZero, out=timerDec);
-    
-    // 位0递减
-    Mux(a=timer0, b=notTimer0, sel=timerDec, out=timer0Dec);
-    
-    // 进位逻辑
-    And(a=timerDec, b=timer0, out=carry0);
-    Xor(a=timer1, b=carry0, out=timer1Xor);
-    Mux(a=timer1, b=timer1Xor, sel=timerDec, out=timer1Dec);
-    
-    And(a=timer1, b=carry0, out=and11);
-    Or(a=carry0, b=and11, out=carry1);
-    
-    Xor(a=timer2, b=carry1, out=timer2Xor);
-    Mux(a=timer2, b=timer2Xor, sel=timerDec, out=timer2Dec);
-    
-    And(a=timer2, b=carry1, out=and21);
-    Or(a=carry1, b=and21, out=carry2);
-    
-    Xor(a=timer3, b=carry2, out=timer3Xor);
-    Mux(a=timer3, b=timer3Xor, sel=timerDec, out=timer3Dec);
-    
-    // 进入计时器模式的条件
-    And(a=buttonLatched, b=state111, out=enterTimerCond);
-    And(a=enterTimerCond, b=PowerOn, out=enterTimer);
-    
-    // 应用复位逻辑
-    Mux(a=timer0Dec, b=true, sel=enterTimer, out=nextTimer0);
-    Mux(a=timer1Dec, b=false, sel=enterTimer, out=nextTimer1);
-    Mux(a=timer2Dec, b=false, sel=enterTimer, out=nextTimer2);
-    Mux(a=timer3Dec, b=true, sel=enterTimer, out=nextTimer3);
-    
-    // --- 计时器模式控制逻辑 ---
-    And(a=TimerMode, b=timerZero, out=exitTimer);
-    Or(a=enterTimer, b=TimerMode, out=stayOrEnter);
-    Not(in=exitTimer, out=notExit);
-    And(a=stayOrEnter, b=notExit, out=nextTimerMode);
-    
-    // --- 按钮锁存逻辑 ---
-    Or(a=buttonRisingEdge, b=buttonLatched, out=buttonLatchedOr);
-    And(a=buttonLatchedOr, b=notTimerMode, out=nextButtonLatched);
-    
-    // --- 状态转移逻辑 ---
-    // 状态0的下一状态位
-    Or(a=state000, b=state011, out=orState01);
-    Or(a=orState01, b=state111, out=orState02);
-    And(a=orState02, b=PowerOn, out=nextState0Base);
-    
-    // 状态1的下一状态位
-    Or(a=state001, b=state010, out=orState11);
-    Or(a=state101, b=state110, out=orState12);
-    Or(a=orState11, b=orState12, out=orState13);
-    And(a=orState13, b=PowerOn, out=nextState1Base);
-    
-    // 状态2的下一状态位
-    Or(a=state100, b=state101, out=orState21);
-    Or(a=state110, b=state111, out=orState22);
-    Or(a=orState21, b=orState22, out=orState23);
-    And(a=orState23, b=PowerOn, out=nextState2Base);
-    
-    // 应用计时器模式
-    Mux(a=nextState0Base, b=state0, sel=TimerMode, out=nextState0);
-    Mux(a=nextState1Base, b=state1, sel=TimerMode, out=nextState1);
-    Mux(a=nextState2Base, b=state2, sel=TimerMode, out=nextState2);
-    
-    // --- 交通灯输出逻辑 (中间信号) ---
-    // X红灯中间信号
-    Or(a=state000, b=state011, out=xRedOr1);
-    Or(a=state100, b=state101, out=xRedOr2);
-    Or(a=state110, b=state111, out=xRedOr3);
-    Or(a=xRedOr1, b=xRedOr2, out=xRedOr4);
-    Or(a=xRedOr4, b=xRedOr3, out=xRedOr5);
-    And(a=xRedOr5, b=PowerOn, out=XredNormal);
-    
-    // X黄灯中间信号
-    Or(a=state001, b=state011, out=xAmberOr);
-    And(a=xAmberOr, b=PowerOn, out=XamberNormal);
-    
-    // X绿灯中间信号
-    And(a=state010, b=PowerOn, out=XgreenNormal);
-    
-    // Z红灯中间信号
-    Or(a=state000, b=state001, out=zRedOr1);
-    Or(a=state010, b=state011, out=zRedOr2);
-    Or(a=state100, b=state111, out=zRedOr3);
-    Or(a=zRedOr1, b=zRedOr2, out=zRedOr4);
-    Or(a=zRedOr4, b=zRedOr3, out=zRedOr5);
-    And(a=zRedOr5, b=PowerOn, out=ZredNormal);
-    
-    // Z黄灯中间信号
-    Or(a=state101, b=state111, out=zAmberOr);
-    And(a=zAmberOr, b=PowerOn, out=ZamberNormal);
-    
-    // Z绿灯中间信号
-    And(a=state110, b=PowerOn, out=ZgreenNormal);
-    
-    // 应用计时器模式覆盖
-    Mux(a=XredNormal, b=true, sel=TimerMode, out=X[2]);
-    Mux(a=XamberNormal, b=false, sel=TimerMode, out=X[1]);
-    Mux(a=XgreenNormal, b=false, sel=TimerMode, out=X[0]);
-    
-    Mux(a=ZredNormal, b=true, sel=TimerMode, out=Z[2]);
-    Mux(a=ZamberNormal, b=false, sel=TimerMode, out=Z[1]);
-    Mux(a=ZgreenNormal, b=false, sel=TimerMode, out=Z[0]);
-    
-    // --- Wait信号 ---
-    Not(in=TimerMode, out=Wait);
-    
-    // --- ButtonPressed输出 ---
-    And(a=buttonLatched, b=PowerOn, out=ButtonPressed);
-    
-    // --- 7段数码管输出 ---
-    // 使用Decoder将4位计时器值转换为7段显示
-    Decoder(in[0]=timer0, in[1]=timer1, in[2]=timer2, in[3]=timer3,
-            a=decA, b=decB, c=decC, d=decD, e=decE, f=decF, g=decG);
-    
-    // 重新排序：C[6]=a, C[5]=e, C[4]=b, C[3]=c, C[2]=d, C[1]=f, C[0]=g
-    And(a=decA, b=TimerMode, out=C[6]);  // a -> C[6]
-    And(a=decE, b=TimerMode, out=C[5]);  // e -> C[5]
-    And(a=decB, b=TimerMode, out=C[4]);  // b -> C[4]
-    And(a=decC, b=TimerMode, out=C[3]);  // c -> C[3]
-    And(a=decD, b=TimerMode, out=C[2]);  // d -> C[2]
-    And(a=decF, b=TimerMode, out=C[1]);  // f -> C[1]
-    And(a=decG, b=TimerMode, out=C[0]);  // g -> C[0]
+
+    //=====================
+    // state register s1 s0
+    // 00 idle
+    // 01 wait (button pressed, waiting for both red)
+    // 10 count (pedestrian countdown)
+    //=====================
+
+    DFF(in=nextS0, out=s0);
+    DFF(in=nextS1, out=s1);
+
+    Not(in=s0, out=ns0);
+    Not(in=s1, out=ns1);
+
+    And(a=ns1, b=ns0, out=idle);     //00
+    And(a=ns1, b=s0,  out=wait);     //01
+    And(a=s1,  b=ns0, out=count);    //10
+
+    // Wait output
+    Or(a=wait, b=false, out=Wait);
+
+    //=====================
+    // Call junction controller
+    //=====================
+    JunctionController(
+        PowerOn=PowerOn,
+        X[0]=jx0, X[1]=jx1, X[2]=jx2,
+        Z[0]=jz0, Z[1]=jz1, Z[2]=jz2
+    );
+
+    //=====================
+    // detect both red
+    //=====================
+
+    // X red = 100
+    Not(in=jx0, out=njx0);
+    Not(in=jx1, out=njx1);
+    And(a=jx2, b=njx1, out=t1x);
+    And(a=t1x, b=njx0, out=xred);
+
+    // Z red = 100
+    Not(in=jz0, out=njz0);
+    Not(in=jz1, out=njz1);
+    And(a=jz2, b=njz1, out=t1z);
+    And(a=t1z, b=njz0, out=zred);
+
+    And(a=xred, b=zred, out=bothred);
+
+    //=====================
+    // button flag
+    //=====================
+    DFF(in=nextFlag, out=flag);
+
+    // set flag whenever Button is pressed
+    Or(a=Button, b=false, out=setF);
+
+    // clear flag only after countdown ends
+    And(a=count, b=timerDone, out=clrF);
+    Not(in=clrF, out=nclrF);
+
+    And(a=flag, b=nclrF, out=holdF);
+    Or(a=setF, b=holdF, out=flagMid);
+
+    // PowerOn=0 resets flag
+    Mux(a=false, b=flagMid, sel=PowerOn, out=nextFlag);
+
+    Or(a=flag, b=false, out=ButtonPressed);
+
+    //=====================
+    // next state logic
+    //=====================
+
+    // idle → wait
+    And(a=idle, b=flag, out=g1);
+
+    // wait → wait
+    Not(in=bothred, out=nbothred);
+    And(a=wait, b=nbothred, out=g2);
+
+    // wait → count
+    And(a=wait, b=bothred, out=g3);
+
+    // count → count
+    Not(in=timerDone, out=ntd);
+    And(a=count, b=ntd, out=g4);
+
+    // next s0
+    Or(a=g1, b=g2, out=nxt0);
+    // next s1
+    Or(a=g3, b=g4, out=nxt1);
+
+    Mux(a=false, b=nxt0, sel=PowerOn, out=nextS0);
+    Mux(a=false, b=nxt1, sel=PowerOn, out=nextS1);
+
+    //=====================
+    // countdown timer
+    //=====================
+    Not(in=count, out=ncount);
+    Or(a=ncount, b=NotPowerOn, out=resetTimer);
+
+    CounterDec(
+        dec=count,
+        reset=resetTimer,
+        out[0]=c0, out[1]=c1, out[2]=c2, out[3]=c3
+    );
+
+    Or(a=c0, b=c1, out=t01);
+    Or(a=c2, b=c3, out=t23);
+    Or(a=t01, b=t23, out=any);
+    Not(in=any, out=timerDone);
+
+    Decoder(in[0]=c0, in[1]=c1, in[2]=c2, in[3]=c3,
+            a=da, b=db, c=dc, d=dd, e=de, f=df, g=dg);
+
+    // only show digits in count state
+    Mux(a=da, b=false, sel=count, out=C[0]);
+    Mux(a=db, b=false, sel=count, out=C[1]);
+    Mux(a=dc, b=false, sel=count, out=C[2]);
+    Mux(a=dd, b=false, sel=count, out=C[3]);
+    Mux(a=de, b=false, sel=count, out=C[4]);
+    Mux(a=df, b=false, sel=count, out=C[5]);
+    Mux(a=dg, b=false, sel=count, out=C[6]);
+
+    //=====================================
+    // vehicle signals: normal except in count
+    //=====================================
+    Mux(a=jx0, b=false, sel=count, out=X[0]);
+    Mux(a=jx1, b=false, sel=count, out=X[1]);
+    Mux(a=jx2, b=true,  sel=count, out=X[2]);
+
+    Mux(a=jz0, b=false, sel=count, out=Z[0]);
+    Mux(a=jz1, b=false, sel=count, out=Z[1]);
+    Mux(a=jz2, b=true,  sel=count, out=Z[2]);
 }
