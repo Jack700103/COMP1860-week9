@@ -20,11 +20,25 @@ CHIP Crossing {
     Not(in=state1, out=notS1);
     Not(in=state2, out=notS2);
     
-    And(a=notS0, b=notS1, c=notS2, out=stateInit);       // 000
-    And(a=state0, b=notS1, c=notS2, out=stateXCycle);    // 001
-    And(a=notS0, b=state1, c=notS2, out=stateZCycle);    // 010
-    And(a=state0, b=state1, c=notS2, out=stateWait);     // 011
-    And(a=notS0, b=notS1, c=state2, out=stateTimer);     // 100
+    // 状态000: 初始状态
+    And(a=notS0, b=notS1, out=andInit1);
+    And(a=andInit1, b=notS2, out=stateInit);
+    
+    // 状态001: X灯循环
+    And(a=state0, b=notS1, out=andXCycle1);
+    And(a=andXCycle1, b=notS2, out=stateXCycle);
+    
+    // 状态010: Z灯循环
+    And(a=notS0, b=state1, out=andZCycle1);
+    And(a=andZCycle1, b=notS2, out=stateZCycle);
+    
+    // 状态011: 等待状态
+    And(a=state0, b=state1, out=andWait1);
+    And(a=andWait1, b=notS2, out=stateWait);
+    
+    // 状态100: 计时状态
+    And(a=notS0, b=notS1, out=andTimer1);
+    And(a=andTimer1, b=state2, out=stateTimer);
     
     // ========== 交通灯控制器 ==========
     // 子状态机控制单个交通灯序列
@@ -101,7 +115,8 @@ CHIP Crossing {
     DFF(in=nextButtonReg, out=buttonReg);
     
     // 按钮检测：在非计时状态下按下按钮
-    And(a=Button, b=notS2, out=buttonDetected);
+    Not(in=stateTimer, out=notStateTimer);
+    And(a=Button, b=notStateTimer, out=buttonDetected);
     Or(a=buttonDetected, b=buttonReg, out=buttonSet);
     
     // 在计时结束时清除按钮标志
@@ -117,6 +132,7 @@ CHIP Crossing {
     CounterDec(dec=stateTimer, reset=resetTimer, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
     
     // 计时器复位条件
+    Not(in=PowerOn, out=notPowerOn);
     Or(a=notPowerOn, b=notStateTimer, out=resetTimer);
     
     // 计时完成检测（当计数为0时）
@@ -125,7 +141,9 @@ CHIP Crossing {
     Not(in=count2, out=notCount2);
     Not(in=count3, out=notCount3);
     
-    And(a=notCount0, b=notCount1, c=notCount2, d=notCount3, out=timerDone);
+    And(a=notCount0, b=notCount1, out=andTimerDone1);
+    And(a=notCount2, b=notCount3, out=andTimerDone2);
+    And(a=andTimerDone1, b=andTimerDone2, out=timerDone);
     
     // ========== 7段显示解码 ==========
     Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, 
@@ -160,33 +178,35 @@ CHIP Crossing {
     And(a=stateZCycle, b=zRedState, out=zCycleDone);
     
     // 等待状态 → 计时状态
-    And(a=stateWait, b=true, out=toTimer);
+    Or(a=stateWait, b=stateWait, out=toTimer);  // 直接进入计时状态
     
     // 计时完成 → 初始状态
     And(a=stateTimer, b=timerDone, out=timerComplete);
     
-    // 主状态机逻辑
-    // 下一状态0
+    // ========== 主状态机下一状态计算 ==========
+    // 下一状态0的逻辑
     Or(a=stateInit, b=stateWait, out=nextS0Temp1);
     Or(a=nextS0Temp1, b=stateTimer, out=nextS0Temp2);
-    Mux(a=nextS0Temp2, b=toXCycle, sel=PowerOn, out=nextS0Temp3);
+    Mux(a=nextS0Temp2, b=stateXCycle, sel=PowerOn, out=nextS0Temp3);
     Mux(a=nextS0Temp3, b=false, sel=PowerOn, out=nextState0);
     
-    // 下一状态1
+    // 下一状态1的逻辑
     Or(a=stateZCycle, b=stateWait, out=nextS1Temp1);
     Mux(a=false, b=nextS1Temp1, sel=PowerOn, out=nextS1Temp2);
     Mux(a=nextS1Temp2, b=false, sel=PowerOn, out=nextState1);
     
-    // 下一状态2
+    // 下一状态2的逻辑
     Mux(a=false, b=stateTimer, sel=PowerOn, out=nextS2Temp1);
     Mux(a=nextS2Temp1, b=false, sel=PowerOn, out=nextState2);
     
     // 特殊：当Z灯循环完成且有行人请求时，进入等待状态
-    And(a=stateZCycle, b=zCycleDone, c=pedestrianRequest, out=enterWait);
+    And(a=stateZCycle, b=zCycleDone, out=andEnterWait1);
+    And(a=andEnterWait1, b=pedestrianRequest, out=enterWait);
     
     // 处理进入等待状态的逻辑
     Mux(a=nextState0, b=true, sel=enterWait, out=finalNextS0);
     Mux(a=nextState1, b=true, sel=enterWait, out=finalNextS1);
+    Mux(a=nextState2, b=false, sel=enterWait, out=finalNextS2);
     
     // Wait信号输出
     Not(in=stateTimer, out=notInTimer);
@@ -201,4 +221,23 @@ CHIP Crossing {
     Mux(a=Z[0], b=false, sel=stateTimer, out=finalZ0);
     Mux(a=Z[1], b=false, sel=stateTimer, out=finalZ1);
     Mux(a=Z[2], b=true, sel=stateTimer, out=finalZ2);
+    
+    // 连接最终输出
+    Or(a=finalX0, b=false, out=X[0]);
+    Or(a=finalX1, b=false, out=X[1]);
+    Or(a=finalX2, b=false, out=X[2]);
+    Or(a=finalZ0, b=false, out=Z[0]);
+    Or(a=finalZ1, b=false, out=Z[1]);
+    Or(a=finalZ2, b=false, out=Z[2]);
+    
+    // 连接到下一状态寄存器
+    Or(a=finalNextS0, b=false, out=nextState0);
+    Or(a=finalNextS1, b=false, out=nextState1);
+    Or(a=finalNextS2, b=false, out=nextState2);
+    
+    // 连接到交通灯下一状态寄存器
+    Or(a=finalXNext0, b=false, out=nextXState0);
+    Or(a=finalXNext1, b=false, out=nextXState1);
+    Or(a=finalZNext0, b=false, out=nextZState0);
+    Or(a=finalZNext1, b=false, out=nextZState1);
 }
