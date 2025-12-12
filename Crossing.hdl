@@ -236,12 +236,18 @@ CHIP Crossing {
     Or(a=segCOr1, b=show0, out=segCOr2);
     And(a=segCOr2, b=state111, out=C[3]);
     
+    // 段d (C[2]): 显示0,2,3时亮
     Or(a=show3, b=show2, out=segDOr1);
     Or(a=segDOr1, b=show0, out=segDOr2);
     And(a=segDOr2, b=state111, out=C[2]);
     
+    // 段f (C[1]): 显示0时亮
     And(a=show0, b=state111, out=C[1]);
     
+    // 段g (C[0]): 显示2,3时亮
     Or(a=show3, b=show2, out=segGOr);
     And(a=segGOr, b=state111, out=C[0]);
+    
+    // 非计时器模式时，所有段熄灭
+    // 上面的逻辑已经通过state111控制了，只有在计时器模式时才输出
 }
