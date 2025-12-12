@@ -90,10 +90,11 @@ CHIP Decoder {
     Or(a=orb4, b=digit8, out=orb5);
     Or(a=orb5, b=digit9, out=orb6);
     Or(a=orb6, b=digitA, out=orb7);
-    Or(a=orb7, b=digitC, out=orb8);
-    Or(a=orb8, b=digitE, out=orb9);
-    Or(a=orb9, b=digitF, out=b);
-    
+    Or(a=orb7, b=digitB, out=orb8);
+    Or(a=orb8, b=digitD, out=orb9);    
+    Or(a=orb9, b=digitE, out=orb10);   
+    Or(a=orb10, b=digitF, out=b);
+
     Or(a=digit0, b=digit1, out=orc1);
     Or(a=orc1, b=digit3, out=orc2);
     Or(a=orc2, b=digit4, out=orc3);
