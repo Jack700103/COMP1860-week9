@@ -1,6 +1,5 @@
 // ================================================
 // Crossing Controller with Pedestrian Timer
-// 使用JunctionController作为基础状态机，添加按钮检测和计时器功能
 // ================================================
 
 CHIP Crossing {
@@ -8,96 +7,149 @@ CHIP Crossing {
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     PARTS:
     
-    // --- 核心状态机：使用JunctionController ---
-    JunctionController(PowerOn=PowerOn, X=normalX[3], Z=normalZ[3]);
+    // --- 使用JunctionController作为基础状态机，但避免子总线问题 ---
+    // 我们将直接实现JunctionController的逻辑，而不是调用它
+    // 状态寄存器
+    DFF(in=nextS2, out=S2);
+    DFF(in=nextS1, out=S1);
+    DFF(in=nextS0, out=S0);
     
-    // --- 状态寄存器扩展：用于计时器控制 ---
-    // S4: 计时器模式标志 (1=计时器运行, 0=正常模式)
-    DFF(in=nextS4, out=S4);
+    // 反相信号
+    Not(in=S0, out=notS0);
+    Not(in=S1, out=notS1);
+    Not(in=S2, out=notS2);
     
-    // 获取反相信号
-    Not(in=S4, out=notS4);
+    // 状态转移逻辑（来自JunctionController）
+    Xor(a=S1, b=S0, out=xorS1S0);
+    And(a=S1, b=S0, out=andS1S0);
+    Xor(a=S2, b=andS1S0, out=xorS2);
     
-    // --- 按钮检测和锁存逻辑 ---
+    // 正常模式下的下一状态
+    Mux(a=false, b=xorS2, sel=PowerOn, out=nextS2normal);
+    Mux(a=false, b=xorS1S0, sel=PowerOn, out=nextS1normal);
+    Mux(a=false, b=notS0, sel=PowerOn, out=nextS0normal);
+    
+    // --- 计时器模式控制 ---
+    DFF(in=nextTimerMode, out=TimerMode);
+    Not(in=TimerMode, out=notTimerMode);
+    
+    // --- 按钮检测逻辑 ---
     DFF(in=Button, out=ButtonPrev);
     Not(in=ButtonPrev, out=notButtonPrev);
     And(a=Button, b=notButtonPrev, out=ButtonRisingEdge);
     
-    // ButtonPressed寄存器：按钮按下时置位，计时器结束后清除
+    // ButtonPressed寄存器
     DFF(in=nextBP, out=ButtonPressedReg);
     
-    // 按钮锁存逻辑：按钮按下或保持，直到计时器结束
-    Or(a=ButtonRisingEdge, b=ButtonPressedReg, out=BPOr);
-    And(a=BPOr, b=notS4, out=BPAnd); // 只在非计时器模式下保持
-    Or(a=BPAnd, b=ButtonRisingEdge, out=nextBPTemp);
-    And(a=nextBPTemp, b=PowerOn, out=nextBP);
+    // 计时器模块
+    CounterDec(dec=TimerDec, reset=TimerReset, out=Timer0, out[1]=Timer1, out[2]=Timer2, out[3]=Timer3);
     
-    // 最终ButtonPressed输出
-    And(a=ButtonPressedReg, b=PowerOn, out=ButtonPressed);
-    
-    // --- 计时器控制逻辑 ---
-    // 计时器启动条件：按钮已按下且处于双红灯状态
-    // 检查双红灯状态：X和Z都是100（红灯）
-    And(a=normalX[2], b=normalZ[2], out=bothRed1);
-    And(a=bothRed1, b=normalX[1], out=bothRed2);
-    Not(in=normalX[1], out=notNormalX1);
-    And(a=bothRed2, b=notNormalX1, out=bothRed3);
-    And(a=bothRed3, b=normalZ[1], out=bothRed4);
-    Not(in=normalZ[1], out=notNormalZ1);
-    And(a=bothRed4, b=notNormalZ1, out=bothRed);
-    
-    // 检查Z刚完成周期：从Z黄灯(010)变为双红
-    // 我们需要记住上一个状态，这里简化：当双红且按钮按下时启动计时器
-    And(a=ButtonPressedReg, b=bothRed, out=startTimerCond);
-    And(a=startTimerCond, b=PowerOn, out=startTimer);
-    
-    // 计时器模块：CounterDec从9倒数到0
-    // 计时器使能：计时器模式且计时器不为0时递减
-    // 计时器复位：启动计时器时复位到9
-    CounterDec(dec=decTimer, reset=resetTimer, out=TimerOut[4]);
-    
-    // 检查计时器是否为0（0000）
-    Or(a=TimerOut[0], b=TimerOut[1], out=orTimer01);
-    Or(a=TimerOut[2], b=TimerOut[3], out=orTimer23);
-    Or(a=orTimer01, b=orTimer23, out=TimerNotZero);
+    // 检查计时器是否为0
+    Or(a=Timer0, b=Timer1, out=or01);
+    Or(a=Timer2, b=Timer3, out=or23);
+    Or(a=or01, b=or23, out=TimerNotZero);
     Not(in=TimerNotZero, out=TimerZero);
     
+    // 检查是否是双红灯状态（同步点）
+    // 在正常序列中，当S2=0时X灯控制，当S2=1时Z灯控制
+    // 双红灯发生在状态转换的边界
+    
+    // 我们需要检测何时完成一个完整周期（X和Z都完成了）
+    // 简化方法：当S2从1变回0时，表示Z周期完成
+    
+    DFF(in=S2, out=S2prev);
+    And(a=S2prev, b=notS2, out=S2falling); // Z周期完成
+    
+    // 计时器启动条件：按钮已按下且Z周期完成
+    And(a=ButtonPressedReg, b=S2falling, out=startTimerCond);
+    And(a=startTimerCond, b=PowerOn, out=startTimer);
+    
+    // 按钮锁存逻辑
+    Or(a=ButtonRisingEdge, b=ButtonPressedReg, out=BPor);
+    And(a=BPor, b=notTimerMode, out=BPand);
+    Or(a=BPand, b=ButtonRisingEdge, out=nextBPtemp);
+    And(a=nextBPtemp, b=PowerOn, out=nextBP);
+    
     // 计时器模式控制
-    // 进入计时器模式：startTimer为1
-    // 退出计时器模式：计时器为0
-    And(a=S4, b=TimerZero, out=exitTimer);
-    Or(a=S4, b=startTimer, out=stayOrStart);
+    And(a=TimerMode, b=TimerZero, out=exitTimer);
+    Or(a=TimerMode, b=startTimer, out=stayOrStart);
     Not(in=exitTimer, out=notExit);
-    And(a=stayOrStart, b=notExit, out=nextS4);
+    And(a=stayOrStart, b=notExit, out=nextTimerMode);
     
-    // 计时器递减使能：计时器模式且计时器不为0
-    And(a=S4, b=TimerNotZero, out=decTimer);
+    // 计时器控制信号
+    And(a=TimerMode, b=TimerNotZero, out=TimerDec);
+    Mux(a=false, b=true, sel=startTimer, out=TimerReset);
     
-    // 计时器复位：启动计时器时复位
-    Mux(a=false, b=true, sel=startTimer, out=resetTimer);
+    // 应用计时器模式到状态转移
+    Mux(a=nextS2normal, b=S2, sel=TimerMode, out=nextS2);
+    Mux(a=nextS1normal, b=S1, sel=TimerMode, out=nextS1);
+    Mux(a=nextS0normal, b=S0, sel=TimerMode, out=nextS0);
     
-    // --- Wait信号：计时器模式时为0，否则为1 ---
-    Not(in=S4, out=Wait);
+    // --- 交通灯输出逻辑（来自JunctionController）---
+    Mux(a=S1, b=false, sel=S2, out=xstate1);
+    Mux(a=S0, b=false, sel=S2, out=xstate0);
     
-    // --- 交通灯输出：计时器模式下强制双红灯，否则使用JunctionController输出 ---
-    Mux(a=normalX[2], b=true, sel=S4, out=X[2]);
-    Mux(a=normalX[1], b=false, sel=S4, out=X[1]);
-    Mux(a=normalX[0], b=false, sel=S4, out=X[0]);
+    Mux(a=false, b=S1, sel=S2, out=zstate1);
+    Mux(a=false, b=S0, sel=S2, out=zstate0);
     
-    Mux(a=normalZ[2], b=true, sel=S4, out=Z[2]);
-    Mux(a=normalZ[1], b=false, sel=S4, out=Z[1]);
-    Mux(a=normalZ[0], b=false, sel=S4, out=Z[0]);
+    // X灯输出
+    Not(in=xstate1, out=Xrednormal);
+    Or(a=xstate0, b=false, out=Xambernormal);
+    Not(in=xstate0, out=notxstate0);
+    And(a=xstate1, b=notxstate0, out=Xgreennormal);
     
-    // --- 7段数码管输出：使用Decoder芯片 ---
-    // 注意：TimerOut是4位输出，Decoder需要4位输入
-    Decoder(in=TimerOut, a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
+    // Z灯输出
+    Not(in=zstate1, out=Zrednormal);
+    Or(a=zstate0, b=false, out=Zambernormal);
+    Not(in=zstate0, out=notzstate0);
+    And(a=zstate1, b=notzstate0, out=Zgreennormal);
     
-    // 仅当计时器模式时输出数码管信号，否则全0
-    And(a=segA, b=S4, out=C[6]);
-    And(a=segB, b=S4, out=C[5]);
-    And(a=segC, b=S4, out=C[4]);
-    And(a=segD, b=S4, out=C[3]);
-    And(a=segE, b=S4, out=C[2]);
-    And(a=segF, b=S4, out=C[1]);
-    And(a=segG, b=S4, out=C[0]);
+    // 应用计时器模式覆盖
+    Mux(a=Xrednormal, b=true, sel=TimerMode, out=X[2]);
+    Mux(a=Xambernormal, b=false, sel=TimerMode, out=X[1]);
+    Mux(a=Xgreennormal, b=false, sel=TimerMode, out=X[0]);
+    
+    Mux(a=Zrednormal, b=true, sel=TimerMode, out=Z[2]);
+    Mux(a=Zambernormal, b=false, sel=TimerMode, out=Z[1]);
+    Mux(a=Zgreennormal, b=false, sel=TimerMode, out=Z[0]);
+    
+    // --- Wait信号 ---
+    Not(in=TimerMode, out=Wait);
+    
+    // --- 7段数码管输出 ---
+    // 将计时器输出合并为4位总线
+    // 我们需要创建4位总线作为Decoder的输入
+    // 由于HDL限制，我们需要通过Or门将单bit信号组合
+    // 但实际上，CounterDec的输出已经是4位，我们需要将其连接到Decoder
+    
+    // 创建4位输入给Decoder
+    // 方法：将每个计时器位分别连接到Decoder的对应输入
+    // 但Decoder期望一个4位总线，我们可以这样连接：
+    // Decoder(in[0]=Timer0, in[1]=Timer1, in[2]=Timer2, in[3]=Timer3, ...)
+    // 在HDL中，我们可以这样写：
+    
+    // 创建4位总线
+    // 注意：这里使用了子总线赋值语法，这是允许的
+    // 因为Timer0, Timer1, Timer2, Timer3是单bit输出
+    
+    // 创建临时总线
+    Or(a=Timer0, b=false, out=TimerBus[0]);
+    Or(a=Timer1, b=false, out=TimerBus[1]);
+    Or(a=Timer2, b=false, out=TimerBus[2]);
+    Or(a=Timer3, b=false, out=TimerBus[3]);
+    
+    // 使用Decoder
+    Decoder(in=TimerBus, a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG);
+    
+    // 仅当计时器模式时输出数码管信号
+    And(a=segA, b=TimerMode, out=C[6]);
+    And(a=segB, b=TimerMode, out=C[5]);
+    And(a=segC, b=TimerMode, out=C[4]);
+    And(a=segD, b=TimerMode, out=C[3]);
+    And(a=segE, b=TimerMode, out=C[2]);
+    And(a=segF, b=TimerMode, out=C[1]);
+    And(a=segG, b=TimerMode, out=C[0]);
+    
+    // --- ButtonPressed输出 ---
+    And(a=ButtonPressedReg, b=PowerOn, out=ButtonPressed);
 }
