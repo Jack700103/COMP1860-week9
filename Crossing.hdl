@@ -1,251 +1,120 @@
-// ================================================
-// Crossing Controller with Pedestrian Timer
-// 修正内部总线使用问题
-// ================================================
-
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
-    
+
     PARTS:
-    
-    // --- 状态寄存器 (3位) ---
-    // 状态编码: state2, state1, state0
-    // 000: 双红灯 (初始状态)
-    // 001: X红黄，Z红
-    // 010: X绿，Z红
-    // 011: X黄，Z红
-    // 100: 双红灯 (X周期结束)
-    // 101: Z红黄，X红
-    // 110: Z绿，X红
-    // 111: Z黄，X红
-    DFF(in=nextState0, out=state0);
-    DFF(in=nextState1, out=state1);
-    DFF(in=nextState2, out=state2);
-    
-    // 状态反相信号
-    Not(in=state0, out=notState0);
-    Not(in=state1, out=notState1);
-    Not(in=state2, out=notState2);
-    
-    // --- 计时器模式寄存器 ---
-    DFF(in=nextTimerMode, out=TimerMode);
-    Not(in=TimerMode, out=notTimerMode);
-    
-    // --- 状态解码 ---
-    // 状态000: 双红灯
-    And(a=notState2, b=notState1, out=and0001);
-    And(a=and0001, b=notState0, out=state000);
-    
-    // 状态001: X红黄
-    And(a=notState2, b=notState1, out=and0011);
-    And(a=and0011, b=state0, out=state001);
-    
-    // 状态010: X绿
-    And(a=notState2, b=state1, out=and0101);
-    And(a=and0101, b=notState0, out=state010);
-    
-    // 状态011: X黄
-    And(a=notState2, b=state1, out=and0111);
-    And(a=and0111, b=state0, out=state011);
-    
-    // 状态100: 双红灯
-    And(a=state2, b=notState1, out=and1001);
-    And(a=and1001, b=notState0, out=state100);
-    
-    // 状态101: Z红黄
-    And(a=state2, b=notState1, out=and1011);
-    And(a=and1011, b=state0, out=state101);
-    
-    // 状态110: Z绿
-    And(a=state2, b=state1, out=and1101);
-    And(a=and1101, b=notState0, out=state110);
-    
-    // 状态111: Z黄
-    And(a=state2, b=state1, out=and1111);
-    And(a=and1111, b=state0, out=state111);
-    
-    // --- 按钮检测和锁存 ---
-    DFF(in=Button, out=buttonPrev);
-    Not(in=buttonPrev, out=notButtonPrev);
-    And(a=Button, b=notButtonPrev, out=buttonRisingEdge);
-    
-    // 按钮锁存寄存器
-    DFF(in=nextButtonLatched, out=buttonLatched);
-    
-    // --- 计时器模块 ---
-    // 使用4位寄存器作为计时器，从9倒数到0
-    DFF(in=nextTimer0, out=timer0);
-    DFF(in=nextTimer1, out=timer1);
-    DFF(in=nextTimer2, out=timer2);
-    DFF(in=nextTimer3, out=timer3);
-    
-    // 检测计时器是否为0 (0000)
-    Or(a=timer0, b=timer1, out=orTimer01);
-    Or(a=timer2, b=timer3, out=orTimer23);
-    Or(a=orTimer01, b=orTimer23, out=timerNotZero);
-    Not(in=timerNotZero, out=timerZero);
-    
-    // --- 计时器控制逻辑 ---
-    // 计时器递减使能：在计时器模式且计时器不为0时递减
-    // 递减逻辑：timer - 1
-    // 当timer=9(1001)时，减1后变为8(1000)
-    
-    // 计算减1后的值
-    Not(in=timer0, out=notTimer0);
-    Mux(a=timer0, b=notTimer0, sel=timerDec, out=timer0Dec);
-    
-    // 进位逻辑
-    And(a=timerDec, b=timer0, out=carry0);
-    Xor(a=timer1, b=carry0, out=timer1DecTemp);
-    Mux(a=timer1, b=timer1DecTemp, sel=timerDec, out=timer1Dec);
-    
-    And(a=timer1, b=carry0, out=andCarry1);
-    Or(a=carry0, b=andCarry1, out=carry1);
-    
-    Xor(a=timer2, b=carry1, out=timer2DecTemp);
-    Mux(a=timer2, b=timer2DecTemp, sel=timerDec, out=timer2Dec);
-    
-    And(a=timer2, b=carry1, out=andCarry2);
-    Or(a=carry1, b=andCarry2, out=carry2);
-    
-    Xor(a=timer3, b=carry2, out=timer3DecTemp);
-    Mux(a=timer3, b=timer3DecTemp, sel=timerDec, out=timer3Dec);
-    
-    // 计时器递减使能：在计时器模式且计时器不为0时递减
-    And(a=TimerMode, b=timerNotZero, out=timerDec);
-    
-    // 计时器复位：进入计时器模式时复位到9 (1001)
-    // 进入计时器模式的条件：按钮已锁存且处于Z黄灯状态(111)
-    And(a=buttonLatched, b=state111, out=enterTimerCond);
-    And(a=enterTimerCond, b=PowerOn, out=enterTimer);
-    
-    // 应用复位和递减逻辑
-    Mux(a=timer0Dec, b=true, sel=enterTimer, out=nextTimer0);   // 复位时timer0=1
-    Mux(a=timer1Dec, b=false, sel=enterTimer, out=nextTimer1);  // 复位时timer1=0
-    Mux(a=timer2Dec, b=false, sel=enterTimer, out=nextTimer2);  // 复位时timer2=0
-    Mux(a=timer3Dec, b=true, sel=enterTimer, out=nextTimer3);   // 复位时timer3=1
-    
-    // --- 计时器模式控制逻辑 ---
-    // 进入计时器模式：当满足条件时
-    // 退出计时器模式：当计时器为0时
-    And(a=TimerMode, b=timerZero, out=exitTimer);
-    
-    Or(a=enterTimer, b=TimerMode, out=stayOrEnter);
-    Not(in=exitTimer, out=notExit);
-    And(a=stayOrEnter, b=notExit, out=nextTimerMode);
-    
-    // --- 按钮锁存逻辑 ---
-    // 按钮按下时锁存，计时器模式结束时清除
-    Or(a=buttonRisingEdge, b=buttonLatched, out=buttonLatchedOr);
-    And(a=buttonLatchedOr, b=notTimerMode, out=nextButtonLatched);
-    
-    // --- 状态转移逻辑 ---
-    // 正常状态转移序列：000->001->010->011->100->101->110->111->000
-    
-    // 状态0的下一状态位
-    // 当状态为000,011,111时，下一状态的state0=1
-    Or(a=state000, b=state011, out=orState01);
-    Or(a=orState01, b=state111, out=orState02);
-    And(a=orState02, b=PowerOn, out=nextState0Base);
-    
-    // 状态1的下一状态位
-    // 当状态为001,010,101,110时，下一状态的state1=1
-    Or(a=state001, b=state010, out=orState11);
-    Or(a=state101, b=state110, out=orState12);
-    Or(a=orState11, b=orState12, out=orState13);
-    And(a=orState13, b=PowerOn, out=nextState1Base);
-    
-    // 状态2的下一状态位
-    // 当状态为100,101,110,111时，下一状态的state2=1
-    Or(a=state100, b=state101, out=orState21);
-    Or(a=state110, b=state111, out=orState22);
-    Or(a=orState21, b=orState22, out=orState23);
-    And(a=orState23, b=PowerOn, out=nextState2Base);
-    
-    // 应用计时器模式：计时器模式下冻结状态机
-    Mux(a=nextState0Base, b=state0, sel=TimerMode, out=nextState0);
-    Mux(a=nextState1Base, b=state1, sel=TimerMode, out=nextState1);
-    Mux(a=nextState2Base, b=state2, sel=TimerMode, out=nextState2);
-    
-    // --- 交通灯输出逻辑 ---
-    // X灯: X[2]=红, X[1]=黄, X[0]=绿
-    
-    // X红灯亮当: 状态000,011,100,101,110,111,或计时器模式
-    Or(a=state000, b=state011, out=xRedOr1);
-    Or(a=state100, b=state101, out=xRedOr2);
-    Or(a=state110, b=state111, out=xRedOr3);
-    Or(a=xRedOr1, b=xRedOr2, out=xRedOr4);
-    Or(a=xRedOr4, b=xRedOr3, out=xRedOr5);
-    Or(a=xRedOr5, b=TimerMode, out=xRedOr6);
-    And(a=xRedOr6, b=PowerOn, out=X[2]);
-    
-    // X黄灯亮当: 状态001或011
-    Or(a=state001, b=state011, out=xAmberOr);
-    And(a=xAmberOr, b=PowerOn, out=X[1]);
-    
-    // X绿灯亮当: 状态010
-    And(a=state010, b=PowerOn, out=X[0]);
-    
-    // Z灯: Z[2]=红, Z[1]=黄, Z[0]=绿
-    
-    // Z红灯亮当: 状态000,001,010,011,100,111,或计时器模式
-    Or(a=state000, b=state001, out=zRedOr1);
-    Or(a=state010, b=state011, out=zRedOr2);
-    Or(a=state100, b=state111, out=zRedOr3);
-    Or(a=zRedOr1, b=zRedOr2, out=zRedOr4);
-    Or(a=zRedOr4, b=zRedOr3, out=zRedOr5);
-    Or(a=zRedOr5, b=TimerMode, out=zRedOr6);
-    And(a=zRedOr6, b=PowerOn, out=Z[2]);
-    
-    // Z黄灯亮当: 状态101或111
-    Or(a=state101, b=state111, out=zAmberOr);
-    And(a=zAmberOr, b=PowerOn, out=Z[1]);
-    
-    // Z绿灯亮当: 状态110
-    And(a=state110, b=PowerOn, out=Z[0]);
-    
-    // 计时器模式下强制双红灯
-    Mux(a=X[2], b=true, sel=TimerMode, out=XredFinal);
-    Mux(a=X[1], b=false, sel=TimerMode, out=XamberFinal);
-    Mux(a=X[0], b=false, sel=TimerMode, out=XgreenFinal);
-    
-    Mux(a=Z[2], b=true, sel=TimerMode, out=ZredFinal);
-    Mux(a=Z[1], b=false, sel=TimerMode, out=ZamberFinal);
-    Mux(a=Z[0], b=false, sel=TimerMode, out=ZgreenFinal);
-    
-    // 应用计时器模式覆盖
-    And(a=XredFinal, b=PowerOn, out=X[2]);
-    And(a=XamberFinal, b=PowerOn, out=X[1]);
-    And(a=XgreenFinal, b=PowerOn, out=X[0]);
-    
-    And(a=ZredFinal, b=PowerOn, out=Z[2]);
-    And(a=ZamberFinal, b=PowerOn, out=Z[1]);
-    And(a=ZgreenFinal, b=PowerOn, out=Z[0]);
-    
-    // --- Wait信号 ---
-    // Wait=1表示交通灯在正常序列中，不能过街
-    // Wait=0表示在计时器模式，可以过街
-    Not(in=TimerMode, out=Wait);
-    
-    // --- ButtonPressed输出 ---
-    And(a=buttonLatched, b=PowerOn, out=ButtonPressed);
-    
-    // --- 7段数码管输出 ---
-    // 使用Decoder将4位计时器值转换为7段显示
-    // 注意：Decoder的输出顺序为a,b,c,d,e,f,g
-    // 但根据8.jpg，我们需要重新排序：C[6]=a, C[5]=e, C[4]=b, C[3]=c, C[2]=d, C[1]=f, C[0]=g
-    
-    // 创建4位总线连接Decoder
-    Decoder(in[0]=timer0, in[1]=timer1, in[2]=timer2, in[3]=timer3,
-            a=decA, b=decB, c=decC, d=decD, e=decE, f=decF, g=decG);
-    
-    // 仅当计时器模式时输出数码管信号
-    And(a=decA, b=TimerMode, out=C[6]);  // a -> C[6]
-    And(a=decE, b=TimerMode, out=C[5]);  // e -> C[5]
-    And(a=decB, b=TimerMode, out=C[4]);  // b -> C[4]
-    And(a=decC, b=TimerMode, out=C[3]);  // c -> C[3]
-    And(a=decD, b=TimerMode, out=C[2]);  // d -> C[2]
-    And(a=decF, b=TimerMode, out=C[1]);  // f -> C[1]
-    And(a=decG, b=TimerMode, out=C[0]);  // g -> C[0]
+    //========================================================
+    // 1. 状态寄存器：是否有按键请求 & 是否处于行人过街阶段
+    //========================================================
+    DFF(in=nextFlag,   out=buttonFlag);   // 本轮是否有人按过按钮
+    DFF(in=nextCross,  out=crossing);     // 是否正在给行人过街（计时阶段）
+
+    //========================================================
+    // 2. 十字路口正常红绿灯控制（题目第4题的控制器）
+    //========================================================
+    JunctionController(
+        PowerOn = PowerOn,
+        X[0] = Xj0, X[1] = Xj1, X[2] = Xj2,
+        Z[0] = Zj0, Z[1] = Zj1, Z[2] = Zj2
+    );
+
+    //========================================================
+    // 3. 检测“两个方向都为红灯”——用来判断一个完整周期结束
+    //========================================================
+    Not(in=Xj1, out=nXj1);
+    Not(in=Xj0, out=nXj0);
+    And(a=Xj2, b=nXj1, out=XredPart);
+    And(a=XredPart, b=nXj0, out=Xred);
+
+    Not(in=Zj1, out=nZj1);
+    Not(in=Zj0, out=nZj0);
+    And(a=Zj2, b=nZj1, out=ZredPart);
+    And(a=ZredPart, b=nZj0, out=Zred);
+
+    And(a=Xred, b=Zred, out=cycleComplete);
+
+    //========================================================
+    // 4. 行人倒计时计数器：CounterDec + Decoder
+    //========================================================
+    Not(in=PowerOn, out=notPowerOn);
+    Not(in=crossing, out=notCrossing);
+    // 非过街状态或关机时复位计数器
+    Or(a=notPowerOn, b=notCrossing, out=timerReset);
+
+    CounterDec(
+        dec   = crossing,
+        reset = timerReset,
+        out[0] = cnt0, out[1] = cnt1, out[2] = cnt2, out[3] = cnt3
+    );
+
+    // 判断计数是否已经减到 0
+    Or(a=cnt0, b=cnt1, out=any01);
+    Or(a=cnt2, b=cnt3, out=any23);
+    Or(a=any01, b=any23, out=anyCnt);
+    Not(in=anyCnt, out=timerDone);
+
+    // 4bit → 七段译码
+    Decoder(
+        in[0]=cnt0, in[1]=cnt1, in[2]=cnt2, in[3]=cnt3,
+        a=segA, b=segB, c=segC, d=segD, e=segE, f=segF, g=segG
+    );
+
+    // 只有在 crossing=1（行人过街计时阶段）才点亮数码管
+    Mux(a=segA, b=false, sel=crossing, out=C[0]);
+    Mux(a=segB, b=false, sel=crossing, out=C[1]);
+    Mux(a=segC, b=false, sel=crossing, out=C[2]);
+    Mux(a=segD, b=false, sel=crossing, out=C[3]);
+    Mux(a=segE, b=false, sel=crossing, out=C[4]);
+    Mux(a=segF, b=false, sel=crossing, out=C[5]);
+    Mux(a=segG, b=false, sel=crossing, out=C[6]);
+
+    //========================================================
+    // 5. 按钮逻辑：ButtonPressed = “本轮是否有人按过按钮”
+    //========================================================
+    // 清零条件：正在过街且计时结束
+    And(a=crossing, b=timerDone, out=clearFlag);
+
+    // 置位：Button 高电平任意时刻都置位
+    Or(a=Button, b=buttonFlag, out=flagOrButton);
+
+    Not(in=clearFlag, out=notClearFlag);
+    And(a=flagOrButton, b=notClearFlag, out=flagTemp);
+
+    // PowerOn=0 时强制清零
+    Mux(a=flagTemp, b=false, sel=notPowerOn, out=nextFlag);
+
+    Or(a=buttonFlag, b=false, out=ButtonPressed);
+
+    //========================================================
+    // 6. crossing 状态机：
+    //    - buttonFlag & cycleComplete → 进入过街阶段
+    //    - crossing & !timerDone      → 维持过街
+    //    - crossing & timerDone       → 退出过街
+    //========================================================
+    And(a=buttonFlag, b=cycleComplete, out=startCross);
+    Not(in=timerDone, out=notTimerDone);
+    And(a=crossing, b=notTimerDone, out=stayCross);
+    Or(a=startCross, b=stayCross, out=nextCrossTemp);
+
+    // PowerOn=0 时 crossing 归零
+    Mux(a=nextCrossTemp, b=false, sel=notPowerOn, out=nextCross);
+
+    //========================================================
+    // 7. Wait 信号：只要系统开机且不在行人过街阶段，就必须等待
+    //========================================================
+    Not(in=crossing, out=notCrossing2);
+    And(a=notCrossing2, b=PowerOn, out=Wait);
+
+    //========================================================
+    // 8. 最终红绿灯输出：
+    //    - 正常时跟随 JunctionController
+    //    - crossing=1 时两个方向都保持“红灯亮、黄绿灭”
+    //========================================================
+    Mux(a=Xj0, b=false, sel=crossing, out=X[0]);
+    Mux(a=Xj1, b=false, sel=crossing, out=X[1]);
+    Mux(a=Xj2, b=true,  sel=crossing, out=X[2]);
+
+    Mux(a=Zj0, b=false, sel=crossing, out=Z[0]);
+    Mux(a=Zj1, b=false, sel=crossing, out=Z[1]);
+    Mux(a=Zj2, b=true,  sel=crossing, out=Z[2]);
 }
