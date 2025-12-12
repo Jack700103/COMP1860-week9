@@ -1,155 +1,209 @@
+// ================================================
+// Crossing Controller with Pedestrian Timer
+// 修正连接问题 - 确保每个输出只有一个驱动源
+// ================================================
+
 CHIP Crossing {
-    IN  PowerOn, Button;
+    IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
-
+    
     PARTS:
-    //============================
-    // 状态寄存器：s1 s0
-    // 00 : 无请求，正常运行
-    // 01 : 已按键，等待两方向红灯
-    // 10 : 行人倒计时状态
-    //============================
-    DFF(in=nextS0, out=s0);
-    DFF(in=nextS1, out=s1);
-
-    // 状态译码
-    Not(in=s0, out=notS0);
-    Not(in=s1, out=notS1);
-    And(a=notS1, b=notS0, out=stateIdle);     // 00
-    And(a=notS1, b=s0,    out=stateWait);     // 01
-    And(a=s1,    b=notS0, out=stateCount);    // 10
-
-    //============================
-    // 调用十字路口主控制器
-    //============================
-    JunctionController(
-        PowerOn=PowerOn,
-        X[0]=xj0, X[1]=xj1, X[2]=xj2,
-        Z[0]=zj0, Z[1]=zj1, Z[2]=zj2
-    );
-
-    // 计算 X、Z 是否为红灯（100）
-    Not(in=xj0, out=notX0);
-    Not(in=xj1, out=notX1);
-    And(a=xj2, b=notX1, out=tmpX1);
-    And(a=tmpX1, b=notX0, out=Xred);
-
-    Not(in=zj0, out=notZ0);
-    Not(in=zj1, out=notZ1);
-    And(a=zj2, b=notZ1, out=tmpZ1);
-    And(a=tmpZ1, b=notZ0, out=Zred);
-
-    And(a=Xred, b=Zred, out=cycleDone);
-
-    //============================
-    // 行人倒计时计数器
-    //============================
-    Not(in=PowerOn, out=notPowerOn);
-    Not(in=stateCount, out=notStateCount);
-
-    Or(a=notPowerOn, b=notStateCount, out=timerReset);
-
-    CounterDec(
-        dec=stateCount,
-        reset=timerReset,
-        out[0]=cnt0,
-        out[1]=cnt1,
-        out[2]=cnt2,
-        out[3]=cnt3
-    );
-
-    // 计数是否为 0（所有位为 0）
-    Or(a=cnt0, b=cnt1, out=tBit01);
-    Or(a=cnt2, b=cnt3, out=tBit23);
-    Or(a=tBit01, b=tBit23, out=anyBitSet);
-    Not(in=anyBitSet, out=timerDone);
-
-    // 七段译码
-    Decoder(
-        in[0]=cnt0,
-        in[1]=cnt1,
-        in[2]=cnt2,
-        in[3]=cnt3,
-        a=segA,
-        b=segB,
-        c=segC,
-        d=segD,
-        e=segE,
-        f=segF,
-        g=segG
-    );
-
-    // 只有在倒计时时显示数字，否则熄灭
-    Mux(a=segA, b=false, sel=stateCount, out=C[0]);
-    Mux(a=segB, b=false, sel=stateCount, out=C[1]);
-    Mux(a=segC, b=false, sel=stateCount, out=C[2]);
-    Mux(a=segD, b=false, sel=stateCount, out=C[3]);
-    Mux(a=segE, b=false, sel=stateCount, out=C[4]);
-    Mux(a=segF, b=false, sel=stateCount, out=C[5]);
-    Mux(a=segG, b=false, sel=stateCount, out=C[6]);
-
-    //============================
-    // 按钮锁存逻辑（ButtonPressed）
-    //============================
-    DFF(in=nextFlag, out=flag);
-
-    // 按下按钮立即置位
-    Or(a=Button, b=false, out=setFlag);
-
-    // 倒计时结束时清零
-    And(a=stateCount, b=timerDone, out=clearFlag);
-    Not(in=clearFlag, out=notClearFlag);
-
-    And(a=flag, b=notClearFlag, out=flagHold);
-    Or(a=setFlag, b=flagHold, out=flagNextTemp);
-
-    // PowerOn 为 0 时强制清零
-    Mux(a=false, b=flagNextTemp, sel=PowerOn, out=nextFlag);
-
-    // ButtonPressed 输出：是否有挂起或正在进行的请求
-    Or(a=flag, b=false, out=ButtonPressed);
-
-    //============================
-    // 状态转移方程
-    //============================
-
-    // idle -> wait 条件：已有按钮请求
-    And(a=stateIdle, b=flag, out=goWaitFromIdle);
-
-    // wait -> wait：尚未到两个方向红灯
-    Not(in=cycleDone, out=notCycleDone);
-    And(a=stateWait, b=notCycleDone, out=stayWait);
-
-    // wait -> count：两个方向红灯，开始倒计时
-    And(a=stateWait, b=cycleDone, out=goCountFromWait);
-
-    // count -> count：倒计时尚未结束
-    Not(in=timerDone, out=notTimerDone);
-    And(a=stateCount, b=notTimerDone, out=stayCount);
-
-    // 组合得到 next 状态（PowerOn=1 时的正常 next）
-    Or(a=goWaitFromIdle,   b=stayWait,   out=nextS0temp);
-    Or(a=goCountFromWait,  b=stayCount,  out=nextS1temp);
-
-    // 加入 PowerOn 复位：PowerOn=0 时强制到状态 00
-    Mux(a=false, b=nextS0temp, sel=PowerOn, out=nextS0);
-    Mux(a=false, b=nextS1temp, sel=PowerOn, out=nextS1);
-
-    //============================
-    // Wait 输出：有请求且不在倒计时阶段
-    //============================
-    And(a=flag, b=notStateCount, out=waitTemp);
-    Or(a=waitTemp, b=false, out=Wait);
-
-    //============================
-    // 车辆信号灯输出
-    // 倒计时时强制四个方向全红，其余时间按 JunctionController
-    //============================
-    Mux(a=xj0, b=false, sel=stateCount, out=X[0]);
-    Mux(a=xj1, b=false, sel=stateCount, out=X[1]);
-    Mux(a=xj2, b=true,  sel=stateCount, out=X[2]);
-
-    Mux(a=zj0, b=false, sel=stateCount, out=Z[0]);
-    Mux(a=zj1, b=false, sel=stateCount, out=Z[1]);
-    Mux(a=zj2, b=true,  sel=stateCount, out=Z[2]);
+    
+    // --- 状态寄存器 (3位) ---
+    DFF(in=nextState0, out=state0);
+    DFF(in=nextState1, out=state1);
+    DFF(in=nextState2, out=state2);
+    
+    // 状态反相信号
+    Not(in=state0, out=notState0);
+    Not(in=state1, out=notState1);
+    Not(in=state2, out=notState2);
+    
+    // --- 计时器模式寄存器 ---
+    DFF(in=nextTimerMode, out=TimerMode);
+    Not(in=TimerMode, out=notTimerMode);
+    
+    // --- 状态解码 ---
+    // 状态000: 双红灯
+    And(a=notState2, b=notState1, out=and0001);
+    And(a=and0001, b=notState0, out=state000);
+    
+    // 状态001: X红黄
+    And(a=notState2, b=notState1, out=and0011);
+    And(a=and0011, b=state0, out=state001);
+    
+    // 状态010: X绿
+    And(a=notState2, b=state1, out=and0101);
+    And(a=and0101, b=notState0, out=state010);
+    
+    // 状态011: X黄
+    And(a=notState2, b=state1, out=and0111);
+    And(a=and0111, b=state0, out=state011);
+    
+    // 状态100: 双红灯
+    And(a=state2, b=notState1, out=and1001);
+    And(a=and1001, b=notState0, out=state100);
+    
+    // 状态101: Z红黄
+    And(a=state2, b=notState1, out=and1011);
+    And(a=and1011, b=state0, out=state101);
+    
+    // 状态110: Z绿
+    And(a=state2, b=state1, out=and1101);
+    And(a=and1101, b=notState0, out=state110);
+    
+    // 状态111: Z黄
+    And(a=state2, b=state1, out=and1111);
+    And(a=and1111, b=state0, out=state111);
+    
+    // --- 按钮检测和锁存 ---
+    DFF(in=Button, out=buttonPrev);
+    Not(in=buttonPrev, out=notButtonPrev);
+    And(a=Button, b=notButtonPrev, out=buttonRisingEdge);
+    
+    // 按钮锁存寄存器
+    DFF(in=nextButtonLatched, out=buttonLatched);
+    
+    // --- 计时器模块 ---
+    // 使用4位寄存器作为计时器
+    DFF(in=nextTimer0, out=timer0);
+    DFF(in=nextTimer1, out=timer1);
+    DFF(in=nextTimer2, out=timer2);
+    DFF(in=nextTimer3, out=timer3);
+    
+    // 检测计时器是否为0 (0000)
+    Or(a=timer0, b=timer1, out=orTimer01);
+    Or(a=timer2, b=timer3, out=orTimer23);
+    Or(a=orTimer01, b=orTimer23, out=timerNotZero);
+    Not(in=timerNotZero, out=timerZero);
+    
+    // --- 计时器控制逻辑 ---
+    // 计算递减值
+    Not(in=timer0, out=notTimer0);
+    
+    // 递减逻辑
+    And(a=TimerMode, b=timerNotZero, out=timerDec);
+    
+    // 位0递减
+    Mux(a=timer0, b=notTimer0, sel=timerDec, out=timer0Dec);
+    
+    // 进位逻辑
+    And(a=timerDec, b=timer0, out=carry0);
+    Xor(a=timer1, b=carry0, out=timer1Xor);
+    Mux(a=timer1, b=timer1Xor, sel=timerDec, out=timer1Dec);
+    
+    And(a=timer1, b=carry0, out=and11);
+    Or(a=carry0, b=and11, out=carry1);
+    
+    Xor(a=timer2, b=carry1, out=timer2Xor);
+    Mux(a=timer2, b=timer2Xor, sel=timerDec, out=timer2Dec);
+    
+    And(a=timer2, b=carry1, out=and21);
+    Or(a=carry1, b=and21, out=carry2);
+    
+    Xor(a=timer3, b=carry2, out=timer3Xor);
+    Mux(a=timer3, b=timer3Xor, sel=timerDec, out=timer3Dec);
+    
+    // 进入计时器模式的条件
+    And(a=buttonLatched, b=state111, out=enterTimerCond);
+    And(a=enterTimerCond, b=PowerOn, out=enterTimer);
+    
+    // 应用复位逻辑
+    Mux(a=timer0Dec, b=true, sel=enterTimer, out=nextTimer0);
+    Mux(a=timer1Dec, b=false, sel=enterTimer, out=nextTimer1);
+    Mux(a=timer2Dec, b=false, sel=enterTimer, out=nextTimer2);
+    Mux(a=timer3Dec, b=true, sel=enterTimer, out=nextTimer3);
+    
+    // --- 计时器模式控制逻辑 ---
+    And(a=TimerMode, b=timerZero, out=exitTimer);
+    Or(a=enterTimer, b=TimerMode, out=stayOrEnter);
+    Not(in=exitTimer, out=notExit);
+    And(a=stayOrEnter, b=notExit, out=nextTimerMode);
+    
+    // --- 按钮锁存逻辑 ---
+    Or(a=buttonRisingEdge, b=buttonLatched, out=buttonLatchedOr);
+    And(a=buttonLatchedOr, b=notTimerMode, out=nextButtonLatched);
+    
+    // --- 状态转移逻辑 ---
+    // 状态0的下一状态位
+    Or(a=state000, b=state011, out=orState01);
+    Or(a=orState01, b=state111, out=orState02);
+    And(a=orState02, b=PowerOn, out=nextState0Base);
+    
+    // 状态1的下一状态位
+    Or(a=state001, b=state010, out=orState11);
+    Or(a=state101, b=state110, out=orState12);
+    Or(a=orState11, b=orState12, out=orState13);
+    And(a=orState13, b=PowerOn, out=nextState1Base);
+    
+    // 状态2的下一状态位
+    Or(a=state100, b=state101, out=orState21);
+    Or(a=state110, b=state111, out=orState22);
+    Or(a=orState21, b=orState22, out=orState23);
+    And(a=orState23, b=PowerOn, out=nextState2Base);
+    
+    // 应用计时器模式
+    Mux(a=nextState0Base, b=state0, sel=TimerMode, out=nextState0);
+    Mux(a=nextState1Base, b=state1, sel=TimerMode, out=nextState1);
+    Mux(a=nextState2Base, b=state2, sel=TimerMode, out=nextState2);
+    
+    // --- 交通灯输出逻辑 (中间信号) ---
+    // X红灯中间信号
+    Or(a=state000, b=state011, out=xRedOr1);
+    Or(a=state100, b=state101, out=xRedOr2);
+    Or(a=state110, b=state111, out=xRedOr3);
+    Or(a=xRedOr1, b=xRedOr2, out=xRedOr4);
+    Or(a=xRedOr4, b=xRedOr3, out=xRedOr5);
+    And(a=xRedOr5, b=PowerOn, out=XredNormal);
+    
+    // X黄灯中间信号
+    Or(a=state001, b=state011, out=xAmberOr);
+    And(a=xAmberOr, b=PowerOn, out=XamberNormal);
+    
+    // X绿灯中间信号
+    And(a=state010, b=PowerOn, out=XgreenNormal);
+    
+    // Z红灯中间信号
+    Or(a=state000, b=state001, out=zRedOr1);
+    Or(a=state010, b=state011, out=zRedOr2);
+    Or(a=state100, b=state111, out=zRedOr3);
+    Or(a=zRedOr1, b=zRedOr2, out=zRedOr4);
+    Or(a=zRedOr4, b=zRedOr3, out=zRedOr5);
+    And(a=zRedOr5, b=PowerOn, out=ZredNormal);
+    
+    // Z黄灯中间信号
+    Or(a=state101, b=state111, out=zAmberOr);
+    And(a=zAmberOr, b=PowerOn, out=ZamberNormal);
+    
+    // Z绿灯中间信号
+    And(a=state110, b=PowerOn, out=ZgreenNormal);
+    
+    // 应用计时器模式覆盖
+    Mux(a=XredNormal, b=true, sel=TimerMode, out=X[2]);
+    Mux(a=XamberNormal, b=false, sel=TimerMode, out=X[1]);
+    Mux(a=XgreenNormal, b=false, sel=TimerMode, out=X[0]);
+    
+    Mux(a=ZredNormal, b=true, sel=TimerMode, out=Z[2]);
+    Mux(a=ZamberNormal, b=false, sel=TimerMode, out=Z[1]);
+    Mux(a=ZgreenNormal, b=false, sel=TimerMode, out=Z[0]);
+    
+    // --- Wait信号 ---
+    Not(in=TimerMode, out=Wait);
+    
+    // --- ButtonPressed输出 ---
+    And(a=buttonLatched, b=PowerOn, out=ButtonPressed);
+    
+    // --- 7段数码管输出 ---
+    // 使用Decoder将4位计时器值转换为7段显示
+    Decoder(in[0]=timer0, in[1]=timer1, in[2]=timer2, in[3]=timer3,
+            a=decA, b=decB, c=decC, d=decD, e=decE, f=decF, g=decG);
+    
+    // 重新排序：C[6]=a, C[5]=e, C[4]=b, C[3]=c, C[2]=d, C[1]=f, C[0]=g
+    And(a=decA, b=TimerMode, out=C[6]);  // a -> C[6]
+    And(a=decE, b=TimerMode, out=C[5]);  // e -> C[5]
+    And(a=decB, b=TimerMode, out=C[4]);  // b -> C[4]
+    And(a=decC, b=TimerMode, out=C[3]);  // c -> C[3]
+    And(a=decD, b=TimerMode, out=C[2]);  // d -> C[2]
+    And(a=decF, b=TimerMode, out=C[1]);  // f -> C[1]
+    And(a=decG, b=TimerMode, out=C[0]);  // g -> C[0]
 }
