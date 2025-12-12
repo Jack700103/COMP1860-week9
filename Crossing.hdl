@@ -1,79 +1,120 @@
 CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
+
     PARTS:
+    // ====== 2-bit state machine (s0,s1) ======
     DFF(in=nextS0, out=s0);
     DFF(in=nextS1, out=s1);
     DFF(in=nextButtonFlag, out=buttonFlag);
+
     Not(in=s0, out=notS0);
     Not(in=s1, out=notS1);
     And(a=notS0, b=notS1, out=state0);
     And(a=s0, b=notS1, out=state1);
     And(a=notS0, b=s1, out=state2);
+
+    // ====== 3-bit free-running counter state (S2,S1,S0) ======
     DFF(in=finalNextS2, out=S2);
     DFF(in=finalNextS1, out=S1);
     DFF(in=finalNextS0, out=S0);
+
     Not(in=S0, out=notS0j);
     Xor(a=S1, b=S0, out=xorS1S0);
     And(a=S1, b=S0, out=andS1S0);
     Xor(a=S2, b=andS1S0, out=xorS2);
+
     Mux(a=false, b=xorS2, sel=PowerOn, out=normalNextS2);
     Mux(a=false, b=xorS1S0, sel=PowerOn, out=normalNextS1);
     Mux(a=false, b=notS0j, sel=PowerOn, out=normalNextS0);
+
     Or(a=state2, b=pauseExtra, out=pause);
     Mux(a=normalNextS2, b=S2, sel=pause, out=finalNextS2);
     Mux(a=normalNextS1, b=S1, sel=pause, out=finalNextS1);
     Mux(a=normalNextS0, b=S0, sel=pause, out=finalNextS0);
+
+    // ====== derive X/Z from (S2,S1,S0) ======
     Mux(a=false, b=S1, sel=S2, out=xState1);
     Mux(a=false, b=S0, sel=S2, out=xState0);
     Mux(a=S1, b=false, sel=S2, out=zState1);
     Mux(a=S0, b=false, sel=S2, out=zState0);
+
     Not(in=xState1, out=Xjunc2);
     Or(a=xState0, b=false, out=Xjunc1);
     Not(in=xState0, out=notXState0);
     And(a=xState1, b=notXState0, out=Xjunc0);
+
     Not(in=zState1, out=Zjunc2);
     Or(a=zState0, b=false, out=Zjunc1);
     Not(in=zState0, out=notZState0);
     And(a=zState1, b=notZState0, out=Zjunc0);
+
     Not(in=Xjunc1, out=notXjunc1);
     Not(in=Xjunc0, out=notXjunc0);
     And(a=Xjunc2, b=notXjunc1, out=xIsRedPart);
     And(a=xIsRedPart, b=notXjunc0, out=xIsRed);
+
     Not(in=Zjunc1, out=notZjunc1);
     Not(in=Zjunc0, out=notZjunc0);
     And(a=Zjunc2, b=notZjunc1, out=zIsRedPart);
     And(a=zIsRedPart, b=notZjunc0, out=zIsRed);
+
     And(a=xIsRed, b=zIsRed, out=cycleComplete);
     Not(in=S2, out=notS2);
     And(a=cycleComplete, b=notS2, out=conditionedCycleComplete);
+
     And(a=state1, b=conditionedCycleComplete, out=toState2);
     And(a=state1, b=conditionedCycleComplete, out=pauseExtra);
+
     Not(in=toState2, out=notToState2);
     And(a=state1, b=notToState2, out=stayState1);
+
+    // ====== button flag ======
     And(a=state0, b=Button, out=setButtonFlag);
     And(a=state2, b=timerDone, out=clearButtonFlag);
+
     Or(a=setButtonFlag, b=buttonFlag, out=buttonFlagBeforeClear);
     Not(in=clearButtonFlag, out=notClearButtonFlag);
     And(a=buttonFlagBeforeClear, b=notClearButtonFlag, out=buttonFlagTemp);
+
     Not(in=PowerOn, out=notPowerOn);
     Mux(a=buttonFlagTemp, b=false, sel=notPowerOn, out=nextButtonFlag);
+
     Or(a=buttonFlag, b=false, out=ButtonPressed);
+
+    // ====== outputs Wait/X/Z ======
     Not(in=state2, out=Wait);
+
     Mux(a=Xjunc0, b=false, sel=state2, out=X[0]);
     Mux(a=Xjunc1, b=false, sel=state2, out=X[1]);
-    Mux(a=Xjunc2, b=true, sel=state2, out=X[2]);
+    Mux(a=Xjunc2, b=true,  sel=state2, out=X[2]);
+
     Mux(a=Zjunc0, b=false, sel=state2, out=Z[0]);
     Mux(a=Zjunc1, b=false, sel=state2, out=Z[1]);
-    Mux(a=Zjunc2, b=true, sel=state2, out=Z[2]);
-    Not(in=state2, out=notState2);
-    Or(a=notPowerOn, b=notState2, out=timerReset);
-    CounterDec(dec=state2, reset=timerReset, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
+    Mux(a=Zjunc2, b=true,  sel=state2, out=Z[2]);
+
+    // =========================================================
+    // FIX: timer reset must be based on "entering state2"
+    // =========================================================
+    DFF(in=state2, out=state2Prev);
+    Not(in=state2Prev, out=notState2Prev);
+    And(a=state2, b=notState2Prev, out=enterState2);
+
+    Or(a=notPowerOn, b=enterState2, out=timerReset);
+
+    // ====== timer counter + done detect ======
+    CounterDec(dec=state2, reset=timerReset,
+               out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
+
     Or(a=count0, b=count1, out=anyBit01);
     Or(a=count2, b=count3, out=anyBit23);
     Or(a=anyBit01, b=anyBit23, out=anyBitSet);
     Not(in=anyBitSet, out=timerDone);
-    Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, a=decA, b=decB, c=decC, d=decD, e=decE, f=decF, g=decG);
+
+    // ====== 7-seg decoder (gated by state2) ======
+    Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3,
+            a=decA, b=decB, c=decC, d=decD, e=decE, f=decF, g=decG);
+
     Mux(a=false, b=decA, sel=state2, out=C[0]);
     Mux(a=false, b=decB, sel=state2, out=C[1]);
     Mux(a=false, b=decC, sel=state2, out=C[2]);
@@ -81,11 +122,15 @@ CHIP Crossing {
     Mux(a=false, b=decE, sel=state2, out=C[4]);
     Mux(a=false, b=decF, sel=state2, out=C[5]);
     Mux(a=false, b=decG, sel=state2, out=C[6]);
+
+    // ====== next-state logic for (s0,s1) ======
     And(a=state0, b=buttonFlag, out=toState1);
     Or(a=toState1, b=stayState1, out=nextS0Temp);
+
     Not(in=timerDone, out=notTimerDone);
     And(a=state2, b=notTimerDone, out=stayState2);
     Or(a=toState2, b=stayState2, out=nextS1Temp);
+
     Mux(a=nextS0Temp, b=false, sel=notPowerOn, out=nextS0);
     Mux(a=nextS1Temp, b=false, sel=notPowerOn, out=nextS1);
 }
