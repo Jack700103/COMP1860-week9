@@ -2,28 +2,17 @@ CHIP Crossing {
     IN PowerOn, Button;
     OUT ButtonPressed, Wait, X[3], Z[3], C[7];
     PARTS:
-    // 状态寄存器：s1 s0 组成 3 个状态
-    // state0: 正常运行、未请求
-    // state1: 已按键，等待两个方向都红灯
-    // state2: 行人过街计时
     DFF(in=nextS0, out=s0);
     DFF(in=nextS1, out=s1);
-    // 记住“有人按过按钮”的标志
     DFF(in=nextButtonFlag, out=buttonFlag);
-    
-    // 状态译码
     Not(in=s0, out=notS0);
     Not(in=s1, out=notS1);
-    And(a=notS0, b=notS1, out=state0); // 00
-    And(a=s0, b=notS1, out=state1);   // 01
-    And(a=notS0, b=s1, out=state2);   // 10
-    
-    // JunctionController 状态寄存器（内联实现）
+    And(a=notS0, b=notS1, out=state0);
+    And(a=s0, b=notS1, out=state1);
+    And(a=notS0, b=s1, out=state2);
     DFF(in=finalNextS2, out=S2);
     DFF(in=finalNextS1, out=S1);
     DFF(in=finalNextS0, out=S0);
-    
-    // JunctionController 下一状态逻辑
     Not(in=S0, out=notS0j);
     Xor(a=S1, b=S0, out=xorS1S0);
     And(a=S1, b=S0, out=andS1S0);
@@ -31,24 +20,18 @@ CHIP Crossing {
     Mux(a=false, b=xorS2, sel=PowerOn, out=normalNextS2);
     Mux(a=false, b=xorS1S0, sel=PowerOn, out=normalNextS1);
     Mux(a=false, b=notS0j, sel=PowerOn, out=normalNextS0);
-    
-    // X 和 Z 状态分配
     Mux(a=false, b=S1, sel=S2, out=xState1);
     Mux(a=false, b=S0, sel=S2, out=xState0);
     Mux(a=S1, b=false, sel=S2, out=zState1);
     Mux(a=S0, b=false, sel=S2, out=zState0);
-    
-    // X 和 Z 灯光输出（正常情况）
-    Not(in=xState1, out=Xjunc2); // RED
-    Or(a=xState0, b=false, out=Xjunc1); // AMBER
+    Not(in=xState1, out=Xjunc2);
+    Or(a=xState0, b=false, out=Xjunc1);
     Not(in=xState0, out=notXState0);
-    And(a=xState1, b=notXState0, out=Xjunc0); // GREEN
-    Not(in=zState1, out=Zjunc2); // RED
-    Or(a=zState0, b=false, out=Zjunc1); // AMBER
+    And(a=xState1, b=notXState0, out=Xjunc0);
+    Not(in=zState1, out=Zjunc2);
+    Or(a=zState0, b=false, out=Zjunc1);
     Not(in=zState0, out=notZState0);
-    And(a=zState1, b=notZState0, out=Zjunc0); // GREEN
-    
-    // 检测红灯状态
+    And(a=zState1, b=notZState0, out=Zjunc0);
     Not(in=Xjunc1, out=notXjunc1);
     Not(in=Xjunc0, out=notXjunc0);
     And(a=Xjunc2, b=notXjunc1, out=xIsRedPart);
@@ -58,19 +41,13 @@ CHIP Crossing {
     And(a=Zjunc2, b=notZjunc1, out=zIsRedPart);
     And(a=zIsRedPart, b=notZjunc0, out=zIsRed);
     And(a=xIsRed, b=zIsRed, out=cycleComplete);
-    
-    // 暂停逻辑：state2 或 (state1 且 cycleComplete)
-    Not(in=S2, out=notS2);
-    And(a=cycleComplete, b=notS2, out=conditionedCycleComplete);
+    And(a=cycleComplete, b=S2, out=conditionedCycleComplete);
+    And(a=state1, b=conditionedCycleComplete, out=toState2);
     And(a=state1, b=conditionedCycleComplete, out=pauseExtra);
     Or(a=state2, b=pauseExtra, out=pause);
-    
-    // 应用暂停信号到 JunctionController 状态
     Mux(a=normalNextS2, b=S2, sel=pause, out=finalNextS2);
     Mux(a=normalNextS1, b=S1, sel=pause, out=finalNextS1);
     Mux(a=normalNextS0, b=S0, sel=pause, out=finalNextS0);
-    
-    // 按钮逻辑
     And(a=state0, b=Button, out=setButtonFlag);
     And(a=state2, b=timerDone, out=clearButtonFlag);
     Or(a=setButtonFlag, b=buttonFlag, out=buttonFlagBeforeClear);
@@ -79,66 +56,32 @@ CHIP Crossing {
     Not(in=PowerOn, out=notPowerOn);
     Mux(a=buttonFlagTemp, b=false, sel=notPowerOn, out=nextButtonFlag);
     Or(a=buttonFlag, b=false, out=ButtonPressed);
-    
-    // Wait 信号：仅在 state1 时为 1
     Or(a=state1, b=false, out=Wait);
-    
-    // 交通灯输出：state2 时强制红灯
-    Mux(a=Xjunc0, b=false, sel=state2, out=X[0]);
-    Mux(a=Xjunc1, b=false, sel=state2, out=X[1]);
-    Mux(a=Xjunc2, b=true, sel=state2, out=X[2]);
-    Mux(a=Zjunc0, b=false, sel=state2, out=Z[0]);
-    Mux(a=Zjunc1, b=false, sel=state2, out=Z[1]);
-    Mux(a=Zjunc2, b=true, sel=state2, out=Z[2]);
-    
-    // 计时器逻辑
+    Mux(a=Xjunc0, b=false, sel=pause, out=Z[0]);
+    Mux(a=Xjunc1, b=false, sel=pause, out=Z[1]);
+    Mux(a=Xjunc2, b=true, sel=pause, out=Z[2]);
+    Mux(a=Zjunc0, b=false, sel=pause, out=X[0]);
+    Mux(a=Zjunc1, b=false, sel=pause, out=X[1]);
+    Mux(a=Zjunc2, b=true, sel=pause, out=X[2]);
     Not(in=state2, out=notState2);
     Or(a=notPowerOn, b=notState2, out=timerReset);
-    CounterDec(
-        dec=state2,
-        reset=timerReset,
-        out[0]=count0,
-        out[1]=count1,
-        out[2]=count2,
-        out[3]=count3
-    );
-    
-    // 计时器完成检测
+    CounterDec(dec=state2, reset=timerReset, out[0]=count0, out[1]=count1, out[2]=count2, out[3]=count3);
     Or(a=count0, b=count1, out=anyBit01);
     Or(a=count2, b=count3, out=anyBit23);
     Or(a=anyBit01, b=anyBit23, out=anyBitSet);
     Not(in=anyBitSet, out=timerDone);
-    
-    // 7段显示译码
-    Decoder(
-        in[0]=count0,
-        in[1]=count1,
-        in[2]=count2,
-        in[3]=count3,
-        a=decA,
-        b=decB,
-        c=decC,
-        d=decD,
-        e=decE,
-        f=decF,
-        g=decG
-    );
-    
-    // 7段显示输出：state2 时显示计时，否则熄灭
-    Mux(a=decA, b=false, sel=state2, out=C[0]);
-    Mux(a=decB, b=false, sel=state2, out=C[1]);
-    Mux(a=decC, b=false, sel=state2, out=C[2]);
-    Mux(a=decD, b=false, sel=state2, out=C[3]);
-    Mux(a=decE, b=false, sel=state2, out=C[4]);
-    Mux(a=decF, b=false, sel=state2, out=C[5]);
-    Mux(a=decG, b=false, sel=state2, out=C[6]);
-    
-    // FSM 状态转换
+    Decoder(in[0]=count0, in[1]=count1, in[2]=count2, in[3]=count3, a=decA, b=decB, c=decC, d=decD, e=decE, f=decF, g=decG);
+    Mux(a=false, b=decA, sel=state2, out=C[0]);
+    Mux(a=false, b=decB, sel=state2, out=C[1]);
+    Mux(a=false, b=decC, sel=state2, out=C[2]);
+    Mux(a=false, b=decD, sel=state2, out=C[3]);
+    Mux(a=false, b=decE, sel=state2, out=C[4]);
+    Mux(a=false, b=decF, sel=state2, out=C[5]);
+    Mux(a=false, b=decG, sel=state2, out=C[6]);
     And(a=state0, b=buttonFlag, out=toState1);
     Not(in=conditionedCycleComplete, out=notCycleComplete);
     And(a=state1, b=notCycleComplete, out=stayState1);
     Or(a=toState1, b=stayState1, out=nextS0Temp);
-    And(a=state1, b=conditionedCycleComplete, out=toState2);
     Not(in=timerDone, out=notTimerDone);
     And(a=state2, b=notTimerDone, out=stayState2);
     Or(a=toState2, b=stayState2, out=nextS1Temp);
